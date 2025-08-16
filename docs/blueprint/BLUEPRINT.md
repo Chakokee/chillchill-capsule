@@ -1,7 +1,7 @@
 # ChillChill Blueprint
 
-- Generated: 2025-08-16 17:12
-- Git: tag=v0.2.1-blueprint, sha=b576caa
+- Generated: 2025-08-16 17:54
+- Git: tag=v0.2.1-blueprint, sha=f2ba4b0
 
 ## Goals
 - Multi-LLM with auto-switch (OpenAI, Groq, Gemini, Ollama)
@@ -59,15 +59,11 @@
 const nextConfig = {
   async rewrites() {
     return [
-      {
-        source: '/bridge/:path*',
-        destination: 'http://api:8000/:path*', // talk to API container
-      },
-    ]
+      { source: '/bridge/:path*', destination: 'http://api:8000/:path*' }
+    ];
   },
-}
-
-module.exports = nextConfig
+};
+module.exports = nextConfig;
 
 ```
 
@@ -97,6 +93,11 @@ CHAT_ECHO=false
 
 ## Change Summary (recent)
 ```
+f2ba4b0 chore: add PR template with blueprint checklist
+58f11ee policy: block direct pushes to main via pre-push hook
+8dddfb0 chore: add CODEOWNERS
+84a135f ci: add Blueprint Guard workflow
+41e28b1 chore(ollama): point API to host.docker.internal; refresh blueprint
 b576caa chore(blueprint): refresh after compose change
 63b5980 chore(blueprint): add generator, guard, and initial living blueprint
 ```
