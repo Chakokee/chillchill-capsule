@@ -1,7 +1,7 @@
 # ChillChill Blueprint
 
-- Generated: 2025-08-16 16:58
-- Git: tag=v0.2.1-blueprint, sha=63b5980
+- Generated: 2025-08-16 17:12
+- Git: tag=v0.2.1-blueprint, sha=b576caa
 
 ## Goals
 - Multi-LLM with auto-switch (OpenAI, Groq, Gemini, Ollama)
@@ -15,8 +15,9 @@
 | service | image | build | ports |
 |---|---|---|---|
 | api |  | C:\AiProject\chatbot\agent-api (Dockerfile) |  |
+| ollama | ollama/ollama:0.3.12 |  |  |
 | redis | redis:alpine |  |  |
-| ui |  | C:\AiProject\chatbot\chatbot-ui (Dockerfile) | ,  |
+| ui |  | C:\AiProject\chatbot\chatbot-ui (Dockerfile) |  |
 | vector | qdrant/qdrant:latest |  |  |
 
 ## Providers
@@ -35,7 +36,7 @@
 | openai | True | ok |
 | groq | True | ok |
 | gemini | True | ok |
-| ollama | False | error: [Errno -5] No address associated with hostname |
+| ollama | True | ok |
 
 ## RAG
 - Vector host: vector
@@ -96,6 +97,7 @@ CHAT_ECHO=false
 
 ## Change Summary (recent)
 ```
+b576caa chore(blueprint): refresh after compose change
 63b5980 chore(blueprint): add generator, guard, and initial living blueprint
 ```
 
