@@ -1,7 +1,7 @@
 # ChillChill Blueprint
 
-- Generated: 2025-08-16 16:57
-- Git: tag=, sha=
+- Generated: 2025-08-16 16:58
+- Git: tag=v0.2.1-blueprint, sha=63b5980
 
 ## Goals
 - Multi-LLM with auto-switch (OpenAI, Groq, Gemini, Ollama)
@@ -96,5 +96,6 @@ CHAT_ECHO=false
 
 ## Change Summary (recent)
 ```
+63b5980 chore(blueprint): add generator, guard, and initial living blueprint
 ```
 
