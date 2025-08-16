@@ -1,0 +1,59 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "DCM: Rebuild API",
+      "type": "shell",
+      "command": "docker compose build --no-cache api && docker compose up -d api",
+      "group": "build"
+    },
+    {
+      "label": "DCM: Rebuild UI",
+      "type": "shell",
+      "command": "docker compose build --no-cache ui && docker compose up -d ui",
+      "group": "build"
+    },
+    {
+      "label": "DCM: Verify API",
+      "type": "shell",
+      "command": "powershell -ExecutionPolicy Bypass -File ./scripts/Test-Api.ps1",
+      "group": "test"
+    },
+    {
+      "label": "DCM: Logs API",
+      "type": "shell",
+      "command": "docker compose logs --no-color -f api",
+      "group": "test"
+    },
+    {
+      "label": "Capsule: Update Manifest",
+      "type": "shell",
+      "command": "powershell -ExecutionPolicy Bypass -File ./scripts/capsule/Update-Manifest.ps1",
+      "group": "build"
+    },
+    {
+      "label": "Capsule: Add Changelog Entry",
+      "type": "shell",
+      "command": "powershell -ExecutionPolicy Bypass -File ./scripts/capsule/Add-Changelog.ps1 -Message \"manual note\"",
+      "group": "none"
+    },
+    {
+      "label": "Capsule: Provider Guard",
+      "type": "shell",
+      "command": "powershell -ExecutionPolicy Bypass -File ./scripts/capsule/Ensure-Guards.ps1",
+      "group": "test"
+    },
+    {
+      "label": "Capsule: Context Gate",
+      "type": "shell",
+      "command": "powershell -ExecutionPolicy Bypass -File ./scripts/capsule/Context-Gate.ps1",
+      "group": "test"
+    },
+    {
+      "label": "Capsule: Validate Defaults",
+      "type": "shell",
+      "command": "powershell -ExecutionPolicy Bypass -File ./scripts/capsule/Validate-Defaults.ps1",
+      "group": "test"
+    }
+  ]
+}

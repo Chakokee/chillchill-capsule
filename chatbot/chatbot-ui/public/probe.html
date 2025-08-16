@@ -1,0 +1,43 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>API Probe</title>
+<style>body{font-family:system-ui;margin:24px}input,button{padding:6px}pre{background:#111;color:#eee;padding:10px;border-radius:8px;white-space:pre-wrap}</style>
+</head><body>
+<h2>ChillChill – API Probe</h2>
+<label>API Base:</label>
+<input id="base" size="30" value="http://127.0.0.1:8000">
+<button id="load">Load providers</button>
+<select id="prov"></select>
+<input id="model" placeholder="(optional model)" size="28">
+<label><input type="checkbox" id="cross"> Cross-check</label>
+<br><br>
+<textarea id="msg" rows="4" cols="80">test</textarea><br>
+<button id="send">Send</button>
+<p id="status"></p>
+<h3>Result</h3><pre id="res">(waiting)</pre>
+<h3>Raw</h3><pre id="raw">(none)</pre>
+<script>
+const $=s=>document.querySelector(s), base=$("#base"), prov=$("#prov"), model=$("#model"), cross=$("#cross"), msg=$("#msg"), res=$("#res"), raw=$("#raw"), st=$("#status");
+async function load() {
+  try {
+    st.textContent="Loading providers…";
+    const r=await fetch(base.value.replace(/\/+$/,'')+"/models");
+    const j=await r.json();
+    prov.innerHTML = ""; (j.providers||[]).forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;prov.appendChild(o);});
+    st.textContent="Ready: "+(j.providers||[]).join(", ");
+  } catch(e){ st.textContent="Error loading providers: "+e; }
+}
+async function send() {
+  const body={provider:prov.value||"auto", model:(model.value||null), crosscheck:cross.checked, temperature:0.2, messages:[{role:"user",content:msg.value||"test"}]};
+  res.textContent="(waiting)"; raw.textContent="(none)"; st.textContent="Sending…";
+  try{
+    const r=await fetch(base.value.replace(/\/+$/,'')+"/chat",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)});
+    let data; try{ data=await r.json(); }catch{ data={detail: await r.text()}; }
+    raw.textContent=JSON.stringify(data,null,2);
+    if(!r.ok){ res.textContent=`${r.status} ${r.statusText}: `+(typeof data.detail==="string"?data.detail:JSON.stringify(data.detail)); st.textContent="Error"; return; }
+    const alts=(data.alternates||[]).map(a=>a.output?`- ${a.provider}${a.model?` (${a.model})`:''}: ${a.output}`:`- ${a.provider}: [error] ${a.error}`).join("\n");
+    res.textContent=`Provider: ${data.provider} | Model: ${data.model}\n\n${data.output||''}${alts?`\n\nAlternates:\n${alts}`:''}`;
+    st.textContent="Done";
+  }catch(e){ st.textContent="Network error"; res.textContent="Network error: "+e; }
+}
+$("#load").onclick=load; $("#send").onclick=send; load();
+</script></body></html>

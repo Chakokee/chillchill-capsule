@@ -1,0 +1,10 @@
+.env
+chatbot/chatbot-ui/.env.local
+logs/
+*.bak.*
+# Operator local state
+/operator/operator.memory.json
+/mode/dev.fingerprint.json
+# Operator local state
+/operator/operator.memory.json
+/mode/dev.fingerprint.json

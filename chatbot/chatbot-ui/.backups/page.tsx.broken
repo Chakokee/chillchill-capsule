@@ -1,0 +1,16 @@
+import AppClient from "../components/AppClient";
+import ChatControls from "../components/ChatControls";
+// import RagPanel from "../components/RagPanel"; // optional
+
+export default function Page() {
+  return (
+    <main className="p-4 space-y-6">
+      <h1 className="text-xl font-bold">ChillChill</h1>
+      <AppClient>
+        <ChatControls />
+        {/* <RagPanel /> */}
+      </AppClient>
+      <div style={{opacity:0.6,fontSize:12}}>Chat routed via /api/chat (Next.js rewrite)</div>
+    </main>
+  );
+}

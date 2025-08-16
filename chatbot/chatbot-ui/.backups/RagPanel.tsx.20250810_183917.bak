@@ -1,0 +1,71 @@
+"use client";
+
+import React, { useRef, useState } from "react";
+
+type Props = {
+  apiBase: string;                    // e.g., process.env.NEXT_PUBLIC_API_BASE
+  getQueryText: () => string;         // return current textarea contents
+  onAnswer?: (text: string) => void;  // optional sink to display answer in UI
+};
+
+export default function RagPanel({ apiBase, getQueryText, onAnswer }: Props) {
+  const fileRef = useRef<HTMLInputElement | null>(null);
+  const [busy, setBusy] = useState<"" | "upload" | "ask">("");
+
+  async function handleUpload() {
+    if (!fileRef.current?.files?.[0]) return alert("Choose a file first.");
+    setBusy("upload");
+    try {
+      const fd = new FormData();
+      fd.append("file", fileRef.current.files[0]); // field name MUST be "file"
+      const res = await fetch(`${apiBase}/rag/ingest`, { method: "POST", body: fd });
+      if (!res.ok) throw new Error(await res.text());
+      alert("Uploaded to RAG ✅");
+      fileRef.current.value = "";
+    } catch (e: any) {
+      alert(`Upload failed: ${e.message ?? e}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function handleAsk() {
+    const query = getQueryText().trim();
+    if (!query) return alert("Type a question first.");
+    setBusy("ask");
+    try {
+      const res = await fetch(`${apiBase}/rag/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query })
+      });
+      const json = await res.json();
+      const text = json?.answer ?? JSON.stringify(json);
+      onAnswer?.(text);
+    } catch (e: any) {
+      alert(`RAG ask failed: ${e.message ?? e}`);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  return (
+    <div className="flex items-center gap-3 flex-wrap">
+      <input ref={fileRef} type="file" className="text-sm" />
+      <button
+        onClick={handleUpload}
+        disabled={busy !== ""}
+        className="px-3 py-1 rounded-xl bg-neutral-800 border border-neutral-700"
+      >
+        {busy === "upload" ? "Uploading…" : "Upload doc to RAG"}
+      </button>
+      <button
+        onClick={handleAsk}
+        disabled={busy !== ""}
+        className="px-3 py-1 rounded-xl bg-neutral-800 border border-neutral-700"
+      >
+        {busy === "ask" ? "Asking…" : "Ask with RAG"}
+      </button>
+    </div>
+  );
+}

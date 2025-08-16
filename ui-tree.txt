@@ -1,0 +1,58 @@
+Folder PATH listing for volume OS
+Volume serial number is 80B5-7D02
+C:\AIPROJECT\CHATBOT\CHATBOT-UI
+|   .dockerignore
+|   .env.local
+|   .env.local.bak.20250811_184745
+|   .eslintrc.json
+|   .gitignore
+|   Dockerfile
+|   Dockerfile.txt
+|   next-env.d.ts
+|   next.config.ts
+|   package-lock.json
+|   package.json
+|   README.md
+|   tsconfig.json
+|   
++---.backups
+|       ChatControls.tsx.DUPE.20250810_182448.tsx
+|       
++---components
+|       AppClient.tsx
+|       AppClient.tsx.20250810_185855.bak
+|       AppClient.tsx.bak_20250811_180110
+|       AppClient.tsx.bak_20250811_180543
+|       ChatControls.tsx
+|       ChatControls.tsx.20250810_181822.bak
+|       ChatControls.tsx.20250810_182448.bak
+|       ChatControls.tsx.20250810_182741.bak
+|       ChatControls.tsx.20250810_183002.bak
+|       ChatControls.tsx.bak
+|       RagPanel.tsx
+|       RagPanel.tsx.20250810_183917.bak
+|       
++---public
+|       file.svg
+|       globe.svg
+|       next.svg
+|       vercel.svg
+|       wil-avatar.png
+|       window.svg
+|       
++---scripts
+|       guard-client-imports.mjs
+|       
+\---src
+    \---app
+        |   favicon.ico
+        |   globals.css
+        |   layout.tsx
+        |   page.module.css
+        |   page.tsx
+        |   page.tsx.bak
+        |   
+        \---fonts
+                GeistMonoVF.woff
+                GeistVF.woff
+                

@@ -1,0 +1,64 @@
+[CmdletBinding()]
+param(
+  [string]$Root = "C:\AiProject",
+  [string]$Model = "llama3:8b",
+  [int]$TimeoutSec = 180,
+  [switch]$OpenUI,
+  [switch]$KillOld8000,
+  [switch]$Warmup
+)
+
+function Info($m){ Write-Host ">>> $m" -ForegroundColor Cyan }
+function Warn($m){ Write-Host "!!  $m" -ForegroundColor Yellow }
+function Die($m){ Write-Host "XX  $m" -ForegroundColor Red; exit 1 }
+
+$compose = Join-Path $Root "docker-compose.yml"
+if (!(Test-Path $compose)) { Die "docker-compose.yml not found at $compose" }
+Push-Location $Root
+
+if ($KillOld8000) {
+  $ids = docker ps -q --filter "publish=8000"
+  if ($ids) { Warn "Freeing port 8000"; $ids | % { docker rm -f $_ | Out-Null } }
+}
+
+Info "Starting ollama..."
+docker compose up -d --remove-orphans ollama | Out-Null
+
+# Wait for ollama CLI
+$sw = [Diagnostics.Stopwatch]::StartNew()
+do {
+  $ok=$false; try{ docker compose exec -T ollama ollama ps *> $null; if($LASTEXITCODE -eq 0){$ok=$true}}catch{}
+  if(-not $ok){ Start-Sleep 2 }
+} while(-not $ok -and $sw.Elapsed.TotalSeconds -lt $TimeoutSec)
+if(-not $ok){ Die "Ollama did not become ready in $TimeoutSec sec" }
+
+# Pull model if missing
+$have = docker compose exec -T ollama ollama list
+if ($have -notmatch [regex]::Escape($Model)) {
+  Info "Pulling model $Model (one-time per volume)..."
+  docker compose exec -T ollama ollama pull $Model || Die "Model pull failed"
+} else { Info "Model $Model already present." }
+
+Info "Starting agent-api and chatbot-ui..."
+docker compose up -d --remove-orphans agent-api chatbot-ui | Out-Null
+
+# Wait for API health
+$health = "http://127.0.0.1:8000/health"
+$ok=$false; $sw.Restart()
+do {
+  try { $r=Invoke-WebRequest -UseBasicParsing -Uri $health -TimeoutSec 5; if($r.StatusCode -eq 200 -and $r.Content -match '"ok"'){ $ok=$true } } catch {}
+  if(-not $ok){ Start-Sleep 2 }
+} while(-not $ok -and $sw.Elapsed.TotalSeconds -lt $TimeoutSec)
+if(-not $ok){ Warn "API not healthy; showing logs:"; docker compose logs --tail=200 agent-api; Die "agent-api not healthy" }
+
+# Optional warm-up chat
+if ($Warmup) {
+  Info "Warm-up chat..."
+  $body = @{ provider="ollama"; model=$Model; message="Warmup ping"; temperature=0.2 } | ConvertTo-Json
+  try { Invoke-RestMethod -Uri "http://127.0.0.1:8000/chat" -Method POST -ContentType 'application/json' -Body $body | Out-Null } catch { Warn "Warm-up failed: $($_.Exception.Message)" }
+}
+
+Info "All services up. UI => http://127.0.0.1:3000  |  API => $health"
+if ($OpenUI) { Start-Process "http://127.0.0.1:3000/" }
+
+Pop-Location

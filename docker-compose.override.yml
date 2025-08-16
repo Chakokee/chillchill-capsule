@@ -1,0 +1,16 @@
+services:
+  ui:
+    ports:
+      - "3000:3000"
+    command: >
+      sh -lc "npm start"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:3000 || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+services:
+  ui:
+    volumes:
+      - ./operator:/app/operator:ro
+      - ./mode:/app/mode:ro

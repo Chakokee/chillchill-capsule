@@ -1,0 +1,4 @@
+ChillChill Quickstart
+- API on port 8000
+- UI on port 3000
+- Qdrant on 6333

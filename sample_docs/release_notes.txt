@@ -1,0 +1,4 @@
+Release Notes
+- Deterministic UUIDv5 for ingestion
+- Batch upsert size 128
+- Chunk size 900, overlap 150

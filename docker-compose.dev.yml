@@ -1,0 +1,6 @@
+services:
+  ui:
+    # Mount the UI source for live edits
+    volumes:
+      - ./chatbot/chatbot-ui:/app
+      - /app/node_modules

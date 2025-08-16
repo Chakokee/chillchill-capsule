@@ -1,0 +1,1 @@
+ChillChill is Wil's local AI agent. It supports RAG over uploads.

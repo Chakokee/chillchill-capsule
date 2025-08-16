@@ -1,0 +1,198 @@
+"use client";
+
+import { useState, type FormEvent, type KeyboardEvent } from "react";
+import Image from "next/image";
+import ChatControls from "../../components/ChatControls";
+
+type ChatResponse = { reply?: string; alternates?: Array<{ provider: string; model: string; reply?: string; error?: string }> };
+type ErrorResponse = { detail?: string };
+type RAGIngestResp = { ok: boolean; chunks: number; filename: string };
+type RAGChatReq = { query: string; top_k?: number; provider?: string; model?: string; temperature?: number };
+
+// Define the correct type for our chat request body
+type ChatBody = {
+  provider: string;
+  message: string;
+  temperature: number;
+  crosscheck: boolean;
+  model?: string;
+};
+
+const API_BASE = process.env.NEXT_PUBLIC_API_BASE || "http://127.0.0.1:8000";
+
+export default function Page() {
+  // chat state
+  const [message, setMessage] = useState("");
+  const [reply, setReply] = useState("");
+  const [alternates, setAlternates] = useState<ChatResponse["alternates"]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // rag state
+  const [uploading, setUploading] = useState(false);
+  const [ingestMsg, setIngestMsg] = useState<string | null>(null);
+  const [ragAnswer, setRagAnswer] = useState("");
+
+  // controls from ChatControls (provider/model/crosscheck)
+  const [cfg, setCfg] = useState({ provider: "auto", model: "", crosscheck: false });
+
+  async function send(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!message.trim()) return;
+    setError(null); setReply(""); setRagAnswer(""); setAlternates([]);
+    setLoading(true);
+    try {
+      const body: ChatBody = {
+        provider: cfg.provider,
+        message,
+        temperature: 0.2,
+        crosscheck: cfg.crosscheck,
+      };
+      if (cfg.provider !== "auto" && cfg.model) body.model = cfg.model;
+
+      const res = await fetch(`${API_BASE}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        let detail = "";
+        try { detail = ((await res.json()) as ErrorResponse).detail ?? ""; } catch {}
+        throw new Error(detail || `HTTP ${res.status}`);
+      }
+      const j = (await res.json()) as ChatResponse;
+      setReply(j.reply ?? "");
+      setAlternates(Array.isArray(j.alternates) ? j.alternates : []);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Request failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  function onKey(e: KeyboardEvent<HTMLTextAreaElement>) {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      (document.getElementById("sendBtn") as HTMLButtonElement)?.click();
+    }
+  }
+
+  async function ingest(file: File) {
+    if (!file) return;
+    setUploading(true); setIngestMsg(null);
+    try {
+      const fd = new FormData(); fd.append("file", file);
+      const res = await fetch(`${API_BASE}/rag/ingest`, { method: "POST", body: fd });
+      if (!res.ok) {
+        let detail = "";
+        try { detail = ((await res.json()) as ErrorResponse).detail ?? ""; } catch {}
+        throw new Error(detail || `HTTP ${res.status}`);
+      }
+      const j = (await res.json()) as RAGIngestResp;
+      setIngestMsg(`Ingested ${j.chunks} chunks from “${j.filename}”.`);
+    } catch (err) {
+      setIngestMsg(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }
+
+  async function askRAG(q: string) {
+    if (!q.trim()) return;
+    setError(null); setReply(""); setRagAnswer(""); setAlternates([]); setLoading(true);
+    try {
+      const req: RAGChatReq = {
+        query: q,
+        top_k: 4,
+        provider: cfg.provider !== "auto" ? cfg.provider : undefined,
+        model: cfg.provider !== "auto" && cfg.model ? cfg.model : undefined,
+        temperature: 0.2
+      };
+      const res = await fetch(`${API_BASE}/rag/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(req),
+      });
+      if (!res.ok) {
+        let detail = "";
+        try { detail = ((await res.json()) as ErrorResponse).detail ?? ""; } catch {}
+        throw new Error(detail || `HTTP ${res.status}`);
+      }
+      const j = (await res.json()) as { reply?: string };
+      setRagAnswer(j.reply ?? "");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "RAG request failed");
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  return (
+    <main className="wrap">
+      <div className="card">
+        <header className="head" aria-live="polite">
+          <div className={`avatarWrap ${loading ? "talk" : "idle"}`} aria-busy={loading}>
+            <Image
+              src="/wil-avatar.png"
+              alt="Wil avatar"
+              width={64}
+              height={64}
+            />
+          </div>
+          <h1>ChillChill</h1>
+        </header>
+
+        <section className="ingest">
+          <label className="fileBtn">
+            <input type="file" onChange={(e) => { const f = e.target.files?.[0]; if (f) ingest(f); }} accept=".pdf,.txt,.md,.rtf"/>
+            {uploading ? "Uploading…" : "Upload doc to RAG"}
+          </label>
+          {ingestMsg && <span className="hint">{ingestMsg}</span>}
+          <button className="ragAsk" onClick={() => askRAG(message)} disabled={loading || !message.trim()}>
+            Ask with RAG
+          </button>
+        </section>
+
+        <div className="controls">
+          <ChatControls apiBase={API_BASE} onChange={setCfg} />
+        </div>
+
+        <form onSubmit={send} className="form">
+          <textarea
+            value={message}
+            onChange={(e) => setMessage(e.target.value)}
+            onKeyDown={onKey}
+            placeholder="Say hello… (Enter to send, Shift+Enter = newline)"
+          />
+          <div className="actions">
+            <button id="sendBtn" disabled={loading || !message.trim()}>
+              {loading ? "Sending…" : "Send"}
+            </button>
+          </div>
+        </form>
+
+        {error && <div className="err">{error}</div>}
+        {reply && (
+          <div className="reply">
+            {reply}
+            {Array.isArray(alternates) && alternates.length > 0 && (
+              <details className="mt-2">
+                <summary className="cursor-pointer opacity-80 text-sm">Show alternates</summary>
+                <ul className="mt-2 space-y-1 text-sm opacity-90">
+                  {alternates.map((a, i) => (
+                    <li key={i}>
+                      <b>{a.provider}/{a.model}:</b> {a.error ? `Error: ${a.error}` : a.reply}
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </div>
+        )}
+        {ragAnswer && <div className="reply"><strong>RAG:</strong> {ragAnswer}</div>}
+
+        <div className="foot">API: {API_BASE}</div>
+      </div>
+    </main>
+  );
+}

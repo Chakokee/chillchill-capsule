@@ -1,0 +1,177 @@
+Folder PATH listing for volume OS
+Volume serial number is 80B5-7D02
+C:.
+¦   .env
+¦   .env.bak.20250811_184745
+¦   .gitignore
+¦   Diag.bat
+¦   docker-compose.dev.yml
+¦   docker-compose.yml
+¦   folder_structure.txt
+¦   init_vector.py
+¦   project_structure.txt
+¦   restart-all.ps1
+¦   sample.txt
+¦   smoke.ps1
+¦   start-all.ps1
+¦   start-all.ps1.bak
+¦   start-chillchill.ps1
+¦   Start-Prepull.bat
+¦   Start.bat
+¦   status.ps1
+¦   stop-all.ps1
+¦   stop-chillchill.ps1
+¦   Stop.bat
+¦   ui-tree.txt
+¦   
++---chatbot
+¦   +---agent-api
+¦   ¦       .dockerignore
+¦   ¦       Dockerfile
+¦   ¦       main.py
+¦   ¦       main.py.bak
+¦   ¦       providers.py
+¦   ¦       rag.py
+¦   ¦       requirements.txt
+¦   ¦       
+¦   +---chatbot-ui
+¦       ¦   .dockerignore
+¦       ¦   .env.local
+¦       ¦   .env.local.bak.20250811_184745
+¦       ¦   .eslintrc.json
+¦       ¦   .gitignore
+¦       ¦   Dockerfile
+¦       ¦   Dockerfile.txt
+¦       ¦   next-env.d.ts
+¦       ¦   next.config.ts
+¦       ¦   package-lock.json
+¦       ¦   package.json
+¦       ¦   README.md
+¦       ¦   tsconfig.json
+¦       ¦   
+¦       +---.backups
+¦       ¦       ChatControls.tsx.DUPE.20250810_182448.tsx
+¦       ¦       
+¦       +---components
+¦       ¦       AppClient.tsx
+¦       ¦       AppClient.tsx.20250810_185855.bak
+¦       ¦       AppClient.tsx.bak_20250811_180110
+¦       ¦       AppClient.tsx.bak_20250811_180543
+¦       ¦       ChatControls.tsx
+¦       ¦       ChatControls.tsx.20250810_181822.bak
+¦       ¦       ChatControls.tsx.20250810_182448.bak
+¦       ¦       ChatControls.tsx.20250810_182741.bak
+¦       ¦       ChatControls.tsx.20250810_183002.bak
+¦       ¦       ChatControls.tsx.bak
+¦       ¦       RagPanel.tsx
+¦       ¦       RagPanel.tsx.20250810_183917.bak
+¦       ¦       
+¦       +---public
+¦       ¦       file.svg
+¦       ¦       globe.svg
+¦       ¦       next.svg
+¦       ¦       probe.html
+¦       ¦       vercel.svg
+¦       ¦       wil-avatar.png
+¦       ¦       window.svg
+¦       ¦       
+¦       +---scripts
+¦       ¦       guard-client-imports.mjs
+¦       ¦       
+¦       +---src
+¦           +---app
+¦               ¦   favicon.ico
+¦               ¦   globals.css
+¦               ¦   layout.tsx
+¦               ¦   page.module.css
+¦               ¦   page.tsx
+¦               ¦   page.tsx.bak
+¦               ¦   page.tsx.bak_ui_fix
+¦               ¦   
+¦               +---fonts
+¦                       GeistMonoVF.woff
+¦                       GeistVF.woff
+¦                       
++---ingest
+¦       create_demo_docs.py
+¦       ingest_docs.py
+¦       
++---logs
+¦       agent_api_diag_20250810_192013.txt
+¦       compose_build_20250811_174706.log
+¦       compose_build_20250811_202323.log
+¦       compose_down_20250811_174705.log
+¦       compose_down_20250812_174307.log
+¦       compose_up_20250811_174708.log
+¦       compose_up_20250811_202354.log
+¦       services_restart_20250810_185644.log
+¦       services_restart_20250810_190952.log
+¦       services_restart_20250810_191411.log
+¦       services_restart_20250810_192820.log
+¦       services_restart_20250810_193146.log
+¦       services_start_20250810_153153.log
+¦       services_start_20250810_153424.log
+¦       services_start_20250810_153822.log
+¦       services_start_20250810_164300.log
+¦       services_start_20250810_165905.log
+¦       services_start_20250810_170334.log
+¦       services_start_20250810_170430.log
+¦       services_start_20250810_192523.log
+¦       services_start_20250810_194209.log
+¦       shutdown-20250814-195913.log
+¦       shutdown-20250814-201008.log
+¦       shutdown-20250815-143056.log
+¦       shutdown-20250815-143114.log
+¦       shutdown-20250815-143150.log
+¦       shutdown-20250815-143320.log
+¦       shutdown-20250815-154506.log
+¦       smoke_nodocker_20250812_175314.log
+¦       startup-20250814-193045.log
+¦       startup-20250814-195027.log
+¦       startup-20250814-195242.log
+¦       startup-20250814-201134.log
+¦       startup-20250815-142801.log
+¦       startup-20250815-143404.log
+¦       startup-20250815-144708.log
+¦       startup-20250816-091805.log
+¦       
++---n8n
+¦       .env
+¦       docker-compose.yml
+¦       
++---Run_ChillChill
+¦       run_chillchill.ps1
+¦       run_chillchill.sh
+¦       
++---sample_docs
+¦       quickstart.txt
+¦       release_notes.txt
+¦       
++---scripts
+¦   ¦   ChillChill-Services.ps1
+¦   ¦   Restart-All.bat
+¦   ¦   Services-Restart.ps1
+¦   ¦   Services-Start.ps1
+¦   ¦   Services-Stop.ps1
+¦   ¦   Start-All.bat
+¦   ¦   Stop-All.bat
+¦   ¦   
+¦   +---logs
+¦           compose_build_20250811_172125.log
+¦           compose_build_20250811_173210.log
+¦           compose_build_20250811_174302.log
+¦           compose_down_20250811_172122.log
+¦           compose_down_20250811_173208.log
+¦           compose_down_20250811_174300.log
+¦           compose_up_20250811_172128.log
+¦           compose_up_20250811_173211.log
+¦           compose_up_20250811_174303.log
+¦           
++---tools
+        diag-now.ps1
+        Diag.bat
+        smoke-nodocker.ps1
+        Start-Prepull.bat
+        Start.bat
+        Stop.bat
+        

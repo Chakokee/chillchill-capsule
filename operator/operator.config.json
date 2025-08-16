@@ -1,0 +1,29 @@
+{
+  "schema": "operator.v3",
+  "mode": "developer",
+  "one_step": true,
+  "risk_meter": "on",
+  "paste_ready_code": true,
+  "paths": {
+    "root": "C:\\AiProject",
+    "ui": "C:\\AiProject\\chatbot\\chatbot-ui",
+    "api": "C:\\AiProject\\chatbot\\agent-api",
+    "scripts": "C:\\AiProject\\scripts",
+    "logs": "C:\\AiProject\\logs"
+  },
+  "docker": {
+    "ui_service": "chill_ui",
+    "api_service": "chill_api"
+  },
+  "network": {
+    "ui_port": 3000,
+    "api_port": 8000,
+    "bridge_endpoint": "/bridge/chat"
+  },
+  "guards": {
+    "preflight": true,
+    "block_open_rca": true,
+    "lint_type_gate": true,
+    "health_swap": true
+  }
+}
