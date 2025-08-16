@@ -1,7 +1,7 @@
 # ChillChill Blueprint
 
-- Generated: 2025-08-16 17:54
-- Git: tag=v0.2.1-blueprint, sha=f2ba4b0
+- Generated: 2025-08-16 17:57
+- Git: tag=v0.2.1-blueprint, sha=fe83b39
 
 ## Goals
 - Multi-LLM with auto-switch (OpenAI, Groq, Gemini, Ollama)
@@ -11,14 +11,7 @@
 - Living blueprint that maps all changes
 
 ## Runtime Topology (docker compose)
-
-| service | image | build | ports |
-|---|---|---|---|
-| api |  | C:\AiProject\chatbot\agent-api (Dockerfile) |  |
-| ollama | ollama/ollama:0.3.12 |  |  |
-| redis | redis:alpine |  |  |
-| ui |  | C:\AiProject\chatbot\chatbot-ui (Dockerfile) |  |
-| vector | qdrant/qdrant:latest |  |  |
+_compose config unavailable_
 
 ## Providers
 | provider | enabled | model |
@@ -93,6 +86,7 @@ CHAT_ECHO=false
 
 ## Change Summary (recent)
 ```
+fe83b39 feat(ollama): fix env updater; ensure ollama up and models present; refresh blueprint
 f2ba4b0 chore: add PR template with blueprint checklist
 58f11ee policy: block direct pushes to main via pre-push hook
 8dddfb0 chore: add CODEOWNERS
