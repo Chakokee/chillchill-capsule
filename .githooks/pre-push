@@ -1,0 +1,13 @@
+#!/bin/sh
+# Block direct pushes to main; require PRs
+protected_branch="refs/heads/main"
+
+# read STDIN: <local_ref> <local_sha> <remote_ref> <remote_sha>
+while read local_ref local_sha remote_ref remote_sha
+do
+  if [ "$remote_ref" = "$protected_branch" ]; then
+    echo "? Direct pushes to 'main' are blocked. Open a PR instead." 1>&2
+    exit 1
+  fi
+done
+exit 0
