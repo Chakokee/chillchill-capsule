@@ -1,0 +1,30 @@
+name: Blueprint Guard
+on:
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install PowerShell 7.x
+        uses: PowerShell/PowerShell@v1
+        with:
+          pwsh-version: '7.4.x'
+
+      - name: Check docker compose availability
+        run: |
+          docker --version
+          docker compose version || true
+
+      - name: Generate blueprint
+        shell: pwsh
+        run: ./scripts/Generate-Blueprint.ps1 -Root "C:\AiProject" -OutDir "C:\AiProject/docs/blueprint"
+
+      - name: Ensure no diff in blueprint
+        run: |
+          git diff --exit-code docs/blueprint/BLUEPRINT.md || (echo "::error::Blueprint is outdated. Run scripts/Generate-Blueprint.ps1 and commit changes." && exit 1)
