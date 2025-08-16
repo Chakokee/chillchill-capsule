@@ -1,7 +1,7 @@
 # ChillChill Blueprint
 
-- Generated: 2025-08-16 17:57
-- Git: tag=v0.2.1-blueprint, sha=fe83b39
+- Generated: 2025-08-16 18:19
+- Git: tag=v0.2.1-blueprint, sha=18658e8
 
 ## Goals
 - Multi-LLM with auto-switch (OpenAI, Groq, Gemini, Ollama)
@@ -11,25 +11,23 @@
 - Living blueprint that maps all changes
 
 ## Runtime Topology (docker compose)
-_compose config unavailable_
+
+| service | image | build | ports |
+|---|---|---|---|
+| api |  | C:\AiProject\chatbot\agent-api (Dockerfile) |  |
+| redis | redis:alpine |  |  |
+| ui |  | C:\AiProject\chatbot\chatbot-ui (Dockerfile) |  |
+| vector | qdrant/qdrant:latest |  |  |
 
 ## Providers
 | provider | enabled | model |
 |---|---:|---|
-| openai | 1 | gpt-4o-mini |
-| groq | 1 | llama-3.1-70b-versatile |
+| openai | 1 | auto |
+| groq | 1 | llama3-70b-8192 |
 | gemini | 1 | gemini-1.5-flash-latest |
-| ollama | 1 | llama3.1 |
+| ollama | 1 | llama3.2:3b |
 
-- Order: openai,groq,gemini,ollama
-
-### Provider health (from /health)
-| provider | healthy | detail |
-|---|---:|---|
-| openai | True | ok |
-| groq | True | ok |
-| gemini | True | ok |
-| ollama | True | ok |
+- Order: gemini,groq,ollama,openai
 
 ## RAG
 - Vector host: vector
@@ -69,23 +67,24 @@ OPENAI_ENABLED=1
 GROQ_ENABLED=1
 GEMINI_ENABLED=1
 OLLAMA_ENABLED=1
-PROVIDER_ORDER=openai,groq,gemini,ollama
-LLM_PROVIDER=openai
-LLM_MODEL=gpt-4o-mini
-GROQ_MODEL=llama-3.1-70b-versatile
+PROVIDER_ORDER=gemini,groq,ollama,openai
+LLM_PROVIDER=auto
+LLM_MODEL=auto
+GROQ_MODEL=llama3-70b-8192
 GEMINI_MODEL=gemini-1.5-flash-latest
-OLLAMA_MODEL=llama3.1
+OLLAMA_MODEL=llama3.2:3b
 EMBED_MODEL_OPENAI=text-embedding-3-small
-OLLAMA_HOST=http://ollama:11434
+OLLAMA_HOST=http://host.docker.internal:11434
 OLLAMA_EMBED_MODEL=nomic-embed-text
 VECTOR_HOST=vector
 VECTOR_PORT=6333
 RAG_COLLECTION=chill_docs
-CHAT_ECHO=false
+AUTOSWITCH_ENABLED=true
 ```
 
 ## Change Summary (recent)
 ```
+18658e8 chore(api): accept 'auto'/*/any as autoswitch; update blueprint
 fe83b39 feat(ollama): fix env updater; ensure ollama up and models present; refresh blueprint
 f2ba4b0 chore: add PR template with blueprint checklist
 58f11ee policy: block direct pushes to main via pre-push hook

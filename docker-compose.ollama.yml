@@ -1,18 +1,12 @@
 services:
-  ollama:
-    image: ollama/ollama:0.3.12
-    container_name: chill_ollama
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
-    volumes:
-      - ollama_data:/root/.ollama
-    healthcheck:
-      test: ["CMD", "wget", "-qO-", "http://localhost:11434/api/tags"]
-      interval: 10s
-      timeout: 3s
-      retries: 30
-      start_period: 10s
-
-volumes:
-  ollama_data:
+  api:
+    environment:
+      AUTOSWITCH_ENABLED: ${AUTOSWITCH_ENABLED:-true}
+      PROVIDER_ORDER: ${PROVIDER_ORDER:-gemini,groq,ollama,openai}
+      GROQ_MODEL: ${GROQ_MODEL:-llama3-70b-8192}
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://host.docker.internal:11434}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-llama3.2:3b}
+      LLM_PROVIDER: ${LLM_PROVIDER:-auto}
+      LLM_MODEL: ${LLM_MODEL:-auto}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
