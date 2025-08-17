@@ -1,4 +1,4 @@
-# Validate-ChillChill.ps1 (v2)
+# Validate-ChillChill.ps1 (v3)
 # End-to-end health & conformance check with RCA + TRAFFIC LIGHT.
 param(
   [string]$Root   = "C:\AiProject",
@@ -43,10 +43,8 @@ function Coalesce($v,$fallback){ if($null -eq $v -or $v -eq ""){ $fallback } els
 # --- Paths ---
 $apiDir = Join-Path $Root "chatbot\agent-api"
 $uiDir  = Join-Path $Root "chatbot\chatbot-ui"
-$ok = Test-Path $apiDir
-if($ok){ Add-Check "API dir" "PASS" $apiDir 0 } else { Add-Check "API dir" "FAIL" $apiDir 2 }
-$ok = Test-Path $uiDir
-if($ok){ Add-Check "UI dir" "PASS" $uiDir 0 } else { Add-Check "UI dir" "FAIL" $uiDir 2 }
+if(Test-Path $apiDir){ Add-Check "API dir" "PASS" $apiDir 0 } else { Add-Check "API dir" "FAIL" $apiDir 2 }
+if(Test-Path $uiDir ){ Add-Check "UI dir"  "PASS" $uiDir  0 } else { Add-Check "UI dir"  "FAIL" $uiDir  2 }
 
 # --- Runtime ---
 $h = Test-Http "$ApiUrl/health"
@@ -63,8 +61,6 @@ if([string]::IsNullOrEmpty($apiC)){ Add-Check "API container" "WARN" "<none>" 1 
 $prov  = ReadVar $apiC "LLM_PROVIDER"
 $model = ReadVar $apiC "LLM_MODEL"
 $echo  = ReadVar $apiC "CHAT_ECHO"
-$noPxU = ReadVar $apiC "NO_PROXY"
-$noPxL = ReadVar $apiC "no_proxy"
 $provDetail = "LLM_PROVIDER={0}; LLM_MODEL={1}" -f (Coalesce $prov "<null>"), (Coalesce $model "<null>")
 if((-not [string]::IsNullOrEmpty($prov)) -and (-not [string]::IsNullOrEmpty($model))){
   Add-Check "Provider env" "PASS" $provDetail 0
@@ -74,9 +70,36 @@ if((-not [string]::IsNullOrEmpty($prov)) -and (-not [string]::IsNullOrEmpty($mod
 $echoDetail = "CHAT_ECHO='{0}'" -f (Coalesce $echo "<null>")
 if($echo -eq "false"){ Add-Check "CHAT_ECHO disabled" "PASS" $echoDetail 0 } else { Add-Check "CHAT_ECHO disabled" "FAIL" $echoDetail 2 }
 
-# NEW: pass if either NO_PROXY or no_proxy is set
-$npDetail = "NO_PROXY='{0}'; no_proxy='{1}'" -f (Coalesce $noPxU "<null>"), (Coalesce $noPxL "<null>")
-if((-not [string]::IsNullOrEmpty($noPxU)) -or (-not [string]::IsNullOrEmpty($noPxL))){
+# --- NO_PROXY presence across sources (container, host env, .env, override) ---
+$noPxU = ReadVar $apiC "NO_PROXY"
+$noPxL = ReadVar $apiC "no_proxy"
+$hostU = $Env:NO_PROXY
+$hostL = $Env:no_proxy
+
+$dotenvU = ""; $dotenvL = ""
+if(Test-Path ".env"){
+  $dotenv = Get-Content ".env" -Raw
+  $m = [regex]::Match($dotenv,'(?m)^\s*NO_PROXY\s*=\s*(.+)\s*$')
+  if($m.Success){ $dotenvU = $m.Groups[1].Value.Trim() }
+  $m = [regex]::Match($dotenv,'(?m)^\s*no_proxy\s*=\s*(.+)\s*$')
+  if($m.Success){ $dotenvL = $m.Groups[1].Value.Trim() }
+}
+
+$ovr = Join-Path $Root "docker-compose.override.yml"
+$ovrText = ""; if(Test-Path $ovr){ $ovrText = Get-Content $ovr -Raw }
+$ovrU = ""; $ovrL = ""
+if($ovrText){
+  $m = [regex]::Match($ovrText,'(?mi)^\s*NO_PROXY\s*:\s*"?([^"\r\n]+)"?')
+  if($m.Success){ $ovrU = $m.Groups[1].Value.Trim() }
+  $m = [regex]::Match($ovrText,'(?mi)^\s*no_proxy\s*:\s*"?([^"\r\n]+)"?')
+  if($m.Success){ $ovrL = $m.Groups[1].Value.Trim() }
+}
+
+$all = @($noPxU,$noPxL,$hostU,$hostL,$dotenvU,$dotenvL,$ovrU,$ovrL) | Where-Object { -not [string]::IsNullOrWhiteSpace($_) }
+$npDetail = "container(NO_PROXY='{0}', no_proxy='{1}'); host(NO_PROXY='{2}', no_proxy='{3}'); .env(NO_PROXY='{4}', no_proxy='{5}'); override(NO_PROXY='{6}', no_proxy='{7}')" -f `
+  (Coalesce $noPxU "<null>"), (Coalesce $noPxL "<null>"), (Coalesce $hostU "<null>"), (Coalesce $hostL "<null>"), (Coalesce $dotenvU "<null>"), (Coalesce $dotenvL "<null>"), (Coalesce $ovrU "<null>"), (Coalesce $ovrL "<null>")
+
+if($all.Count -gt 0){
   Add-Check "NO_PROXY present" "PASS" $npDetail 0
 } else {
   Add-Check "NO_PROXY present" "WARN" $npDetail 1
@@ -103,17 +126,17 @@ if(Test-Path $provCfg){
   Add-Check "providers.json present" "FAIL" "$provCfg not found" 2
 }
 
-# --- Compose override & repo hygiene ---
-$ovr = Join-Path $Root "docker-compose.override.yml"
+# --- Compose override presence (defense in depth) ---
 if(Test-Path $ovr){
-  $t = Get-Content $ovr -Raw
-  $hasEcho = ($t -match "CHAT_ECHO=false")
-  $hasNoPx = (($t -match "NO_PROXY=") -or ($t -match "no_proxy="))
+  $t = $ovrText
+  $hasEcho = ($t -match "CHAT_ECHO\s*:\s*""?false""?")
+  $hasNoPx = (($t -match "(?mi)^\s*NO_PROXY\s*:") -or ($t -match "(?mi)^\s*no_proxy\s*:"))
   if($hasEcho){ Add-Check "Override CHAT_ECHO=false" "PASS" ("exists=$hasEcho") 0 } else { Add-Check "Override CHAT_ECHO=false" "WARN" ("exists=$hasEcho") 1 }
   if($hasNoPx){ Add-Check "Override NO_PROXY" "PASS" ("exists=$hasNoPx") 0 } else { Add-Check "Override NO_PROXY" "WARN" ("exists=$hasNoPx") 1 }
 }else{
   Add-Check "override file" "WARN" "$ovr missing" 1
 }
+
 if(Test-Path ".gitattributes"){ Add-Check ".gitattributes present" "PASS" "$true" 0 } else { Add-Check ".gitattributes present" "WARN" "$false" 1 }
 $bp = "docs\blueprint\BLUEPRINT.md"
 if(Test-Path $bp){ Add-Check "Blueprint canonical" "PASS" $bp 0 } else { Add-Check "Blueprint canonical" "WARN" $bp 1 }
@@ -121,7 +144,6 @@ if(Test-Path $bp){ Add-Check "Blueprint canonical" "PASS" $bp 0 } else { Add-Che
 # --- Output & Traffic Light ---
 $results | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 ".\logs\verify-summary.json"
 $results | Sort-Object Severity, Check | Format-Table -AutoSize
-
 $max = ($results | Measure-Object Severity -Maximum).Maximum
 if($null -eq $max){ $max = 0 }
 $light = if($max -ge 2){ "RED" } elseif($max -ge 1){ "AMBER" } else { "GREEN" }

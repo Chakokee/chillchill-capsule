@@ -1,7 +1,7 @@
 # ChillChill Blueprint
 
-- Generated: 2025-08-17 17:20
-- Git: tag=v0.3.0-checkpoint-20250816, sha=bfcd429
+- Generated: 2025-08-17 17:27
+- Git: tag=v0.3.0-checkpoint-20250816, sha=c5aae31
 
 ## Goals
 - Multi-LLM with auto-switch (OpenAI, Groq, Gemini, Ollama)
@@ -11,13 +11,7 @@
 - Living blueprint that maps all changes
 
 ## Runtime Topology (docker compose)
-
-| service | image | build | ports |
-|---|---|---|---|
-| api |  | C:\AiProject\chatbot\agent-api (Dockerfile) |  |
-| redis | redis:alpine |  |  |
-| ui |  | C:\AiProject\chatbot\chatbot-ui (Dockerfile) |  |
-| vector | qdrant/qdrant:latest |  |  |
+_compose config unavailable_
 
 ## Providers
 | provider | enabled | model |
@@ -83,10 +77,12 @@ LLM_PROVIDER=ollama
 OPENAI_API_KEY=sk-s*****************************************************************************************************************************************************************AA
 GROQ_MODEL=llama3-70b-8192
 AUTOSWITCH_ORDER=gemini,groq,ollama,openai
+no_proxy=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
 ```
 
 ## Change Summary (recent)
 ```
+c5aae31 ChillChill: enforce providers/autoswitch; NO_PROXY/no_proxy via mapping env; blueprint canonical; normalize endings
 bfcd429 ChillChill: enforce providers/autoswitch; NO_PROXY/no_proxy via mapping env; blueprint canonical; normalize endings
 78e146c ChillChill: enforce providers/autoswitch; NO_PROXY/no_proxy via mapping env; blueprint canonical; normalize endings
 868fd28 ChillChill: enforce providers/autoswitch; NO_PROXY/no_proxy via mapping env; blueprint canonical; normalize endings
@@ -106,6 +102,5 @@ f2ba4b0 chore: add PR template with blueprint checklist
 58f11ee policy: block direct pushes to main via pre-push hook
 8dddfb0 chore: add CODEOWNERS
 84a135f ci: add Blueprint Guard workflow
-41e28b1 chore(ollama): point API to host.docker.internal; refresh blueprint
 ```
 

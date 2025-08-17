@@ -1,5 +1,5 @@
-# Fix-ChillChill.ps1 (v3)
-# Enforce providers/personas; write mapping-style env for NO_PROXY/no_proxy; force-recreate containers; auto-loop to GREEN.
+# Fix-ChillChill.ps1 (v5)
+# Ensures providers/personas, injects NO_PROXY/no_proxy via .env and override, rebuilds, auto-loops to GREEN (max 3).
 param(
   [string]$Root      = "C:\AiProject",
   [string]$Branch    = "chore/ui-canonicalize-2025-08-16",
@@ -9,9 +9,26 @@ param(
 $ErrorActionPreference = "Stop"
 Set-Location $Root
 $BranchVar = $Branch
+$NoPxVal   = "localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal"
 
 function Info($m){ Write-Host ">> $m" -ForegroundColor Cyan }
 function EnsureDir($p){ if(-not (Test-Path $p)){ New-Item -ItemType Directory -Force -Path $p | Out-Null } }
+
+function Set-EnvKV($path,$key,$value){
+  $content = ""
+  if(Test-Path $path){ $content = Get-Content $path -Raw }
+  $escaped = [regex]::Escape($key)
+  $pattern = "^(?:$escaped)=.*$"
+  if([string]::IsNullOrEmpty($content)){
+    $content = "$key=$value`r`n"
+  } elseif([regex]::IsMatch($content,$pattern,[System.Text.RegularExpressions.RegexOptions]::Multiline)){
+    $content = [regex]::Replace($content,$pattern,("$key=$value"),[System.Text.RegularExpressions.RegexOptions]::Multiline)
+  } else {
+    if(($content.Length -gt 0) -and (-not $content.EndsWith("`r`n"))){ $content += "`r`n" }
+    $content += "$key=$value`r`n"
+  }
+  Set-Content -Encoding UTF8 $path $content
+}
 
 function Enforce-Providers {
   $cfgDir = "chatbot\agent-api\config"; EnsureDir $cfgDir
@@ -28,21 +45,31 @@ function Enforce-Providers {
   Info "providers.json enforced"
 }
 
-# IMPORTANT: Use mapping-style env (more reliable than list for merges)
+function Enforce-DotEnv {
+  $envPath = ".env"
+  Set-EnvKV $envPath "NO_PROXY" $NoPxVal
+  Set-EnvKV $envPath "no_proxy" $NoPxVal
+  Info ".env updated with NO_PROXY and no_proxy"
+}
+
 function Enforce-Override {
   $ovr = "docker-compose.override.yml"
   $managed = @"
 # === OPERATOR-MANAGED-ENV BEGIN ===
 services:
   api:
+    env_file:
+      - .env
     environment:
       CHAT_ECHO: "false"
-      NO_PROXY: "localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal"
-      no_proxy: "localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal"
+      NO_PROXY: "$NoPxVal"
+      no_proxy: "$NoPxVal"
   ui:
+    env_file:
+      - .env
     environment:
-      NO_PROXY: "localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal"
-      no_proxy: "localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal"
+      NO_PROXY: "$NoPxVal"
+      no_proxy: "$NoPxVal"
 # === OPERATOR-MANAGED-ENV END ===
 "@
   if(Test-Path $ovr){
@@ -56,7 +83,7 @@ services:
   } else {
     $managed | Set-Content -Encoding UTF8 $ovr
   }
-  Info "docker-compose override (mapping env) enforced"
+  Info "docker-compose override enforced (.env + mapping env)"
 }
 
 function Enforce-GitAttributes {
@@ -95,8 +122,8 @@ function Enforce-Blueprint {
 }
 
 function Commit-And-Push {
-  git add .gitattributes docker-compose.override.yml chatbot/agent-api/config/providers.json docs/blueprint/BLUEPRINT.md 2>$null | Out-Null
-  git commit -m "ChillChill: enforce providers/autoswitch; NO_PROXY/no_proxy via mapping env; blueprint canonical; normalize endings" 2>$null | Out-Null
+  git add .env .gitattributes docker-compose.override.yml chatbot/agent-api/config/providers.json docs/blueprint/BLUEPRINT.md 2>$null | Out-Null
+  git commit -m "ChillChill: inject NO_PROXY/no_proxy via .env + override; enforce providers; blueprint canonical; normalize endings" 2>$null | Out-Null
   git push -u origin $BranchVar 2>$null | Out-Null
   Info ("Changes committed & pushed (branch={0})" -f $BranchVar)
 }
@@ -104,6 +131,23 @@ function Commit-And-Push {
 function Rebuild-Core {
   Info "Recreating containers to apply env..."
   docker compose up -d --build --force-recreate api ui | Out-Null
+}
+
+function Show-Merged-Config {
+  try{
+    $cfg = docker compose config
+    $out = "logs\compose-merged.yaml"
+    $cfg | Set-Content -Encoding UTF8 $out
+    ($cfg -split "`r?`n") | Select-String -Pattern "NO_PROXY|no_proxy" | ForEach-Object { Write-Host (".. " + $_.ToString()) -ForegroundColor DarkGray }
+  }catch{ Write-Warning "docker compose config failed: $($_.Exception.Message)" }
+}
+
+function Check-Container-Env {
+  try{
+    $apiName = (docker ps --format "{{.Names}}" | Where-Object { $_ -match '(_api$)|(-api$)|(^api$)' } | Select-Object -First 1)
+    $up = (docker exec $apiName /bin/sh -lc 'printf "NO_PROXY=%s|no_proxy=%s\n" "$NO_PROXY" "$no_proxy"') 2>$null
+    if($up){ Write-Host ">> Container proxy vars: $up" -ForegroundColor DarkGray }
+  }catch{ Write-Warning "Container env probe failed: $($_.Exception.Message)" }
 }
 
 function Run-Validate {
@@ -121,19 +165,14 @@ function Run-Validate {
 function Execute-Pass {
   Info "Applying deterministic fixes..."
   Enforce-Providers
+  Enforce-DotEnv
   Enforce-Override
   Enforce-GitAttributes
   Enforce-Blueprint
   Commit-And-Push
   Rebuild-Core
-
-  # Quick verify inside container (for immediate signal)
-  try{
-    $apiName = (docker ps --format "{{.Names}}" | Where-Object { $_ -match '(_api$)|(-api$)|(^api$)' } | Select-Object -First 1)
-    $up = (docker exec $apiName /bin/sh -lc 'printf "NO_PROXY=%s\nno_proxy=%s\n" "$NO_PROXY" "$no_proxy"') 2>$null
-    if($up){ Write-Host ">> Container proxy vars: $up" -ForegroundColor DarkGray }
-  }catch{}
-
+  Show-Merged-Config
+  Check-Container-Env
   $r = Run-Validate
   return $r
 }
