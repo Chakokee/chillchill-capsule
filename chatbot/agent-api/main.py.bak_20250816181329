@@ -67,39 +67,3 @@ def chat(req: ChatIn) -> ChatOut:
 @app.exception_handler(Exception)
 async def unhandled_exc_handler(_, exc: Exception):
     raise HTTPException(status_code=500, detail=f"Internal error: {type(exc).__name__}")
-
-from pydantic import BaseModel, Field
-from typing import Optional
-import os
-
-class ChatReq(BaseModel):
-    message: str = Field(..., description="User message")
-    provider: Optional[str] = None
-    model: Optional[str] = None
-    use_rag: Optional[bool] = False
-    temperature: Optional[float] = 0.2
-
-DEF_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()
-DEF_MODEL    = os.getenv("LLM_MODEL", "gpt-4o-mini")
-ECHO_MODE    = os.getenv("CHAT_ECHO", "false").lower() in ("1","true","yes","on")
-
-@app.post("/chat")
-async def chat(req: ChatReq):
-    """
-    Real chat handler: routes to providers.chat_with_fallback unless ECHO_MODE is true.
-    """
-    if ECHO_MODE:
-        return {"answer": f"Echo: {req.message}"}
-
-    try:
-        from providers import chat_with_fallback
-        provider = (req.provider or DEF_PROVIDER or "openai").lower()
-        model    = (req.model or DEF_MODEL or "gpt-4o-mini")
-        out = await chat_with_fallback(provider, model, req.message, req.temperature or 0.2)
-        if not out:
-            raise RuntimeError("Provider chain returned empty")
-        return {"answer": out}
-    except Exception as e:
-        # Surface real errors to caller for now (or log and return 502)
-        raise HTTPException(status_code=502, detail=str(e))
-

@@ -1,7 +1,7 @@
 # ChillChill Blueprint
 
-- Generated: 2025-08-17 16:51
-- Git: tag=v0.3.0-checkpoint-20250816, sha=5143ecb
+- Generated: 2025-08-16 18:19
+- Git: tag=v0.2.1-blueprint, sha=18658e8
 
 ## Goals
 - Multi-LLM with auto-switch (OpenAI, Groq, Gemini, Ollama)
@@ -22,12 +22,12 @@
 ## Providers
 | provider | enabled | model |
 |---|---:|---|
-| openai | 1 | llama3.2:3b |
+| openai | 1 | auto |
 | groq | 1 | llama3-70b-8192 |
 | gemini | 1 | gemini-1.5-flash-latest |
 | ollama | 1 | llama3.2:3b |
 
-- Order: ollama,groq,gemini,openai
+- Order: gemini,groq,ollama,openai
 
 ## RAG
 - Vector host: vector
@@ -48,9 +48,11 @@
 ```js
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: { ignoreDuringBuilds: true },
-  typescript: { ignoreBuildErrors: true },
-  images: { unoptimized: true }
+  async rewrites() {
+    return [
+      { source: '/bridge/:path*', destination: 'http://api:8000/:path*' }
+    ];
+  },
 };
 module.exports = nextConfig;
 
@@ -58,37 +60,30 @@ module.exports = nextConfig;
 
 ## Env (secrets masked)
 ```
-EMBED_MODEL_OPENAI=text-embedding-3-small
-GROQ_API_KEY=
-GOOGLE_API_KEY=
-OLLAMA_HOST=http://chill_ollama:11434
+OPENAI_API_KEY=sk-s*****************************************************************************************************************************************************************AA
+GROQ_API_KEY=gsk_**************************************************aA
 GEMINI_API_KEY=AIza*********************************Vw
+OPENAI_ENABLED=1
+GROQ_ENABLED=1
+GEMINI_ENABLED=1
+OLLAMA_ENABLED=1
+PROVIDER_ORDER=gemini,groq,ollama,openai
+LLM_PROVIDER=auto
+LLM_MODEL=auto
+GROQ_MODEL=llama3-70b-8192
+GEMINI_MODEL=gemini-1.5-flash-latest
+OLLAMA_MODEL=llama3.2:3b
+EMBED_MODEL_OPENAI=text-embedding-3-small
+OLLAMA_HOST=http://host.docker.internal:11434
+OLLAMA_EMBED_MODEL=nomic-embed-text
+VECTOR_HOST=vector
+VECTOR_PORT=6333
 RAG_COLLECTION=chill_docs
 AUTOSWITCH_ENABLED=true
-OLLAMA_EMBED_MODEL=nomic-embed-text
-GEMINI_MODEL=gemini-1.5-flash-latest
-VECTOR_HOST=vector
-GROQ_ENABLED=1
-PROVIDER_DEBUG=1
-OPENAI_ENABLED=1
-CHAT_ECHO=false
-OLLAMA_MODEL=llama3.2:3b
-PROVIDER_ORDER=ollama,groq,gemini,openai
-GEMINI_ENABLED=1
-LLM_MODEL=llama3.2:3b
-OLLAMA_ENABLED=1
-LOG_LEVEL=DEBUG
-VECTOR_PORT=6333
-LLM_PROVIDER=ollama
-OPENAI_API_KEY=sk-s*****************************************************************************************************************************************************************AA
-GROQ_MODEL=llama3-70b-8192
-AUTOSWITCH_ORDER=gemini,groq,ollama,openai
 ```
 
 ## Change Summary (recent)
 ```
-5143ecb ChillChill: proxy-agnostic validator, stable compose up, UI lint bypass & AppClient placeholder, blueprint regenerated
-b3f3509 chore(checkpoint): overlay + autoswitch plan captured in blueprint
 18658e8 chore(api): accept 'auto'/*/any as autoswitch; update blueprint
 fe83b39 feat(ollama): fix env updater; ensure ollama up and models present; refresh blueprint
 f2ba4b0 chore: add PR template with blueprint checklist

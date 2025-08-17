@@ -1,0 +1,8 @@
+{
+  "autoswitch_order": ["gemini","groq","ollama","openai"],
+  "personas": {
+    "GP":        { "provider": "gemini" },
+    "Chef":      { "provider": "openai" },
+    "Accountant":{ "provider": "groq", "model": "llama3-70b-8192" }
+  }
+}

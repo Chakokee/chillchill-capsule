@@ -14,3 +14,13 @@ services:
       - CI=1
     command: >-
       sh -lc "npm ci && npm run build && npx next start -H 0.0.0.0 -p 3000"
+services:
+  api:
+    environment:
+      - CHAT_ECHO=false
+      - NO_PROXY=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
+      - no_proxy=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
+  ui:
+    environment:
+      - NO_PROXY=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
+      - no_proxy=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal

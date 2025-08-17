@@ -1,0 +1,115 @@
+import requests
+import logging
+import os, requests
+import os, httpx, asyncio
+from typing import Optional
+
+TIMEOUT = 60
+OPENAI_KEY  = os.getenv("OPENAI_API_KEY")
+GROQ_KEY    = os.getenv("GROQ_API_KEY")
+GEMINI_KEY  = os.getenv("GEMINI_API_KEY")
+OLLAMA_HOST = os.getenv("OLLAMA_HOST","http://ollama:11434")
+
+class ProviderError(Exception): pass
+
+async def _post_json(url, json, headers=None):
+    async with httpx.AsyncClient(timeout=TIMEOUT) as client:
+        r = await client.post(url, json=json, headers=headers)
+        if r.status_code >= 400:
+            raise ProviderError(f"{r.status_code} {r.text[:300]}")
+        return r.json()
+
+async def chat_openai(model, msg, temperature=0.2):
+    key = os.getenv("OPENAI_API_KEY")
+    if not key:
+        logging.warning("openai: missing OPENAI_API_KEY")
+        return None
+    try:
+        url = "https://api.openai.com/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        payload = {"model": model or "gpt-3.5-turbo", "messages": [{"role":"user","content": msg}], "temperature": temperature}
+        r = requests.post(url, headers=headers, json=payload, timeout=30)
+        if r.status_code != 200:
+            logging.warning("openai HTTP %s: %s", r.status_code, r.text[:500])
+            return None
+        j = r.json(); ch = j.get("choices") or []
+        return ch[0].get("message", {}).get("content") if ch else None
+    except Exception:
+        logging.exception("openai call failed"); return Noneasync def chat_ollama(model, msg, temperature=0.2):
+    try:
+        mdl = model or "llama3.2:3b"
+        url = f"{OLLAMA_HOST}/api/chat"
+        payload = {"model": mdl, "messages":[{"role":"user","content": msg}], "options":{"temperature": temperature}, "stream": False}
+        r = requests.post(url, json=payload, timeout=20)
+        if r.status_code != 200:
+            logging.info("ollama HTTP %s: %s", r.status_code, r.text[:300]); return None
+        j = r.json() or {}
+        return ((j.get("message") or {}).get("content")) or None
+    except Exception as e:
+        logging.info("ollama call failed: %r", e); return Noneasync def chat_with_fallback(provider, model, msg, temperature=0.2) -> str | None:
+    prov = (provider or "").lower().strip()
+    order_map = {
+        "openai": ["openai","groq","gemini","ollama"],
+        "groq":   ["groq","openai","gemini","ollama"],
+        "gemini": ["gemini","openai","groq","ollama"],
+        "ollama": ["ollama","groq","openai","gemini"],
+        "":       ["openai","groq","gemini","ollama"],
+        None:     ["openai","groq","gemini","ollama"],
+    }
+    order = order_map.get(prov, order_map[""])
+    impl = {
+        "openai": chat_openai,
+        "groq":   chat_groq,
+        "gemini": chat_gemini,
+        "ollama": chat_ollama,
+    }
+    last_err = None
+    for name in order:
+        fn = impl.get(name)
+        if not fn: continue
+        try:
+            out = await fn(model, msg, temperature)
+            if out and isinstance(out, str) and out.strip():
+                logging.info("provider %s succeeded", name)
+                return out.strip()
+            else:
+                logging.info("provider %s returned empty", name)
+        except Exception as e:
+            logging.warning("provider %s raised: %r", name, e)
+            last_err = e
+    if last_err:
+        logging.warning("all providers failed; last error: %r", last_err)
+    return Noneasync def chat_groq(model, msg, temperature=0.2):
+    key = os.getenv("GROQ_API_KEY")
+    if not key:
+        logging.info("groq: no key; skipping")
+        return None
+    try:
+        url = "https://api.groq.com/openai/v1/chat/completions"
+        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
+        payload = {"model": model or "llama3-70b-8192", "messages": [{"role":"user","content": msg}], "temperature": temperature}
+        r = requests.post(url, headers=headers, json=payload, timeout=30)
+        if r.status_code != 200:
+            logging.warning("groq HTTP %s: %s", r.status_code, r.text[:500]); return None
+        j = r.json(); ch = j.get("choices") or []
+        return ch[0].get("message", {}).get("content") if ch else None
+    except Exception:
+        logging.exception("groq call failed"); return None
+
+async def chat_gemini(model, msg, temperature=0.2):
+    key = os.getenv("GOOGLE_API_KEY")
+    if not key:
+        logging.info("gemini: no key; skipping")
+        return None
+    try:
+        mdl = model or "gemini-1.5-flash-latest"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={key}"
+        payload = {"contents":[{"parts":[{"text": msg}]}]}
+        r = requests.post(url, json=payload, timeout=30)
+        if r.status_code != 200:
+            logging.warning("gemini HTTP %s: %s", r.status_code, r.text[:500]); return None
+        j = r.json(); c = j.get("candidates") or []
+        parts = (c[0].get("content") or {}).get("parts") if c else None
+        return parts[0].get("text") if parts else None
+    except Exception:
+        logging.exception("gemini call failed"); return None
