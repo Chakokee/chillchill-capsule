@@ -1,5 +1,5 @@
-# Validate-ChillChill.ps1
-# End-to-end health & conformance check for ChillChill. Produces RCA + TRAFFIC LIGHT.
+# Validate-ChillChill.ps1 (v2)
+# End-to-end health & conformance check with RCA + TRAFFIC LIGHT.
 param(
   [string]$Root   = "C:\AiProject",
   [string]$ApiUrl = "http://127.0.0.1:8000",
@@ -13,7 +13,6 @@ New-Item -ItemType Directory -Force -Path ".\logs" | Out-Null
 # --- Helpers ---
 $results = @()
 function Add-Check([string]$Name,[string]$Status,[string]$Detail,[int]$Severity){
-  # Severity: 0=PASS, 1=WARN, 2=FAIL
   $script:results += [pscustomobject]@{ Check=$Name; Status=$Status; Detail=$Detail; Severity=$Severity }
 }
 function Test-Http([string]$Url,[string]$Method="GET",[string]$Body=$null){
@@ -44,31 +43,44 @@ function Coalesce($v,$fallback){ if($null -eq $v -or $v -eq ""){ $fallback } els
 # --- Paths ---
 $apiDir = Join-Path $Root "chatbot\agent-api"
 $uiDir  = Join-Path $Root "chatbot\chatbot-ui"
-Add-Check "API dir" ((Test-Path $apiDir) ? "PASS" : "FAIL") $apiDir ((Test-Path $apiDir) ? 0 : 2)
-Add-Check "UI dir"  ((Test-Path $uiDir)  ? "PASS" : "FAIL") $uiDir  ((Test-Path $uiDir)  ? 0 : 2)
+$ok = Test-Path $apiDir
+if($ok){ Add-Check "API dir" "PASS" $apiDir 0 } else { Add-Check "API dir" "FAIL" $apiDir 2 }
+$ok = Test-Path $uiDir
+if($ok){ Add-Check "UI dir" "PASS" $uiDir 0 } else { Add-Check "UI dir" "FAIL" $uiDir 2 }
 
 # --- Runtime ---
 $h = Test-Http "$ApiUrl/health"
-Add-Check "API /health" ($h.Ok ? "PASS" : "FAIL") ("HTTP {0}" -f $h.Code) (($h.Ok) ? 0 : 2)
+if($h.Ok){ Add-Check "API /health" "PASS" ("HTTP {0}" -f $h.Code) 0 } else { Add-Check "API /health" "FAIL" ("HTTP {0}" -f $h.Code) 2 }
 $c = Test-Http "$ApiUrl/chat" "POST" '{"message":"ok","use_rag":false}'
-Add-Check "API /chat (autoswitch)" ($c.Ok ? "PASS" : "FAIL") ("HTTP {0}" -f $c.Code) (($c.Ok) ? 0 : 2)
+if($c.Ok){ Add-Check "API /chat (autoswitch)" "PASS" ("HTTP {0}" -f $c.Code) 0 } else { Add-Check "API /chat (autoswitch)" "FAIL" ("HTTP {0}" -f $c.Code) 2 }
 $u = Test-Http $UiUrl
-Add-Check "UI reachable" ($u.Ok ? "PASS" : "FAIL") ("HTTP {0}" -f $u.Code) (($u.Ok) ? 0 : 2)
+if($u.Ok){ Add-Check "UI reachable" "PASS" ("HTTP {0}" -f $u.Code) 0 } else { Add-Check "UI reachable" "FAIL" ("HTTP {0}" -f $u.Code) 2 }
 
 # --- Env from container ---
 $apiC  = GetApiContainer
+if([string]::IsNullOrEmpty($apiC)){ Add-Check "API container" "WARN" "<none>" 1 } else { Add-Check "API container" "PASS" $apiC 0 }
+
 $prov  = ReadVar $apiC "LLM_PROVIDER"
 $model = ReadVar $apiC "LLM_MODEL"
 $echo  = ReadVar $apiC "CHAT_ECHO"
-$noPx  = ReadVar $apiC "NO_PROXY"
-
-Add-Check "API container" (([string]::IsNullOrEmpty($apiC)) ? "WARN" : "PASS") (Coalesce $apiC "<none>") (([string]::IsNullOrEmpty($apiC)) ? 1 : 0)
+$noPxU = ReadVar $apiC "NO_PROXY"
+$noPxL = ReadVar $apiC "no_proxy"
 $provDetail = "LLM_PROVIDER={0}; LLM_MODEL={1}" -f (Coalesce $prov "<null>"), (Coalesce $model "<null>")
-Add-Check "Provider env" ((-not [string]::IsNullOrEmpty($prov)) -and (-not [string]::IsNullOrEmpty($model)) ? "PASS" : "WARN") $provDetail (((-not [string]::IsNullOrEmpty($prov)) -and (-not [string]::IsNullOrEmpty($model))) ? 0 : 1)
+if((-not [string]::IsNullOrEmpty($prov)) -and (-not [string]::IsNullOrEmpty($model))){
+  Add-Check "Provider env" "PASS" $provDetail 0
+} else {
+  Add-Check "Provider env" "WARN" $provDetail 1
+}
 $echoDetail = "CHAT_ECHO='{0}'" -f (Coalesce $echo "<null>")
-Add-Check "CHAT_ECHO disabled" (($echo -eq "false") ? "PASS" : "FAIL") $echoDetail (($echo -eq "false") ? 0 : 2)
-$noPxDetail = "NO_PROXY='{0}'" -f (Coalesce $noPx "<null>")
-Add-Check "NO_PROXY present" ((-not [string]::IsNullOrEmpty($noPx)) ? "PASS" : "WARN") $noPxDetail ((-not [string]::IsNullOrEmpty($noPx)) ? 0 : 1)
+if($echo -eq "false"){ Add-Check "CHAT_ECHO disabled" "PASS" $echoDetail 0 } else { Add-Check "CHAT_ECHO disabled" "FAIL" $echoDetail 2 }
+
+# NEW: pass if either NO_PROXY or no_proxy is set
+$npDetail = "NO_PROXY='{0}'; no_proxy='{1}'" -f (Coalesce $noPxU "<null>"), (Coalesce $noPxL "<null>")
+if((-not [string]::IsNullOrEmpty($noPxU)) -or (-not [string]::IsNullOrEmpty($noPxL))){
+  Add-Check "NO_PROXY present" "PASS" $npDetail 0
+} else {
+  Add-Check "NO_PROXY present" "WARN" $npDetail 1
+}
 
 # --- Config conformance ---
 $provCfg = Join-Path $apiDir "config\providers.json"
@@ -82,8 +94,8 @@ if(Test-Path $provCfg){
     $accP = $cfg.personas.Accountant.provider
     $accM = $cfg.personas.Accountant.model
     $okPersona = ($gp -eq "gemini" -and $chef -eq "openai" -and $accP -eq "groq" -and $accM -eq "llama3-70b-8192")
-    Add-Check "Autoswitch order" ($okOrder ? "PASS" : "FAIL") ("order=$order") (($okOrder) ? 0 : 2)
-    Add-Check "Personas mapping" ($okPersona ? "PASS" : "FAIL") ("GP=$gp; Chef=$chef; Accountant=$accP/$accM") (($okPersona) ? 0 : 2)
+    if($okOrder){ Add-Check "Autoswitch order" "PASS" ("order=$order") 0 } else { Add-Check "Autoswitch order" "FAIL" ("order=$order") 2 }
+    if($okPersona){ Add-Check "Personas mapping" "PASS" ("GP=$gp; Chef=$chef; Accountant=$accP/$accM") 0 } else { Add-Check "Personas mapping" "FAIL" ("GP=$gp; Chef=$chef; Accountant=$accP/$accM") 2 }
   }catch{
     Add-Check "providers.json parse" "FAIL" $_.Exception.Message 2
   }
@@ -97,14 +109,14 @@ if(Test-Path $ovr){
   $t = Get-Content $ovr -Raw
   $hasEcho = ($t -match "CHAT_ECHO=false")
   $hasNoPx = (($t -match "NO_PROXY=") -or ($t -match "no_proxy="))
-  Add-Check "Override CHAT_ECHO=false" ($hasEcho ? "PASS" : "WARN") ("exists=$hasEcho") ($hasEcho ? 0 : 1)
-  Add-Check "Override NO_PROXY" ($hasNoPx ? "PASS" : "WARN") ("exists=$hasNoPx") ($hasNoPx ? 0 : 1)
+  if($hasEcho){ Add-Check "Override CHAT_ECHO=false" "PASS" ("exists=$hasEcho") 0 } else { Add-Check "Override CHAT_ECHO=false" "WARN" ("exists=$hasEcho") 1 }
+  if($hasNoPx){ Add-Check "Override NO_PROXY" "PASS" ("exists=$hasNoPx") 0 } else { Add-Check "Override NO_PROXY" "WARN" ("exists=$hasNoPx") 1 }
 }else{
   Add-Check "override file" "WARN" "$ovr missing" 1
 }
-Add-Check ".gitattributes present" ((Test-Path ".gitattributes") ? "PASS" : "WARN") (Test-Path ".gitattributes") ((Test-Path ".gitattributes") ? 0 : 1)
+if(Test-Path ".gitattributes"){ Add-Check ".gitattributes present" "PASS" "$true" 0 } else { Add-Check ".gitattributes present" "WARN" "$false" 1 }
 $bp = "docs\blueprint\BLUEPRINT.md"
-Add-Check "Blueprint canonical" ((Test-Path $bp) ? "PASS" : "WARN") $bp ((Test-Path $bp) ? 0 : 1)
+if(Test-Path $bp){ Add-Check "Blueprint canonical" "PASS" $bp 0 } else { Add-Check "Blueprint canonical" "WARN" $bp 1 }
 
 # --- Output & Traffic Light ---
 $results | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 ".\logs\verify-summary.json"

@@ -1,9 +1,8 @@
-# Fix-ChillChill.ps1
-# Applies deterministic fixes, rebuilds, re-validates; optional auto-loop until GREEN (max 3 passes).
+# Fix-ChillChill.ps1 (v2 — only final light calc hardened)
 param(
   [string]$Root      = "C:\AiProject",
   [string]$Branch    = "chore/ui-canonicalize-2025-08-16",
-  [switch]$AutoLoop  = $true   # auto enabled for this session per your choice
+  [switch]$AutoLoop  = $true
 )
 
 $ErrorActionPreference = "Stop"
@@ -15,7 +14,7 @@ function EnsureDir($p){ if(-not (Test-Path $p)){ New-Item -ItemType Directory -F
 
 function Enforce-Providers {
   $cfgDir = "chatbot\agent-api\config"; EnsureDir $cfgDir
-  @'
+@'
 {
   "autoswitch_order": ["gemini","groq","ollama","openai"],
   "personas": {
@@ -30,7 +29,7 @@ function Enforce-Providers {
 
 function Enforce-Override {
   $ovr = "docker-compose.override.yml"
-  $managed = @"
+$managed = @"
 # === OPERATOR-MANAGED-ENV BEGIN ===
 services:
   api:
@@ -48,30 +47,20 @@ services:
     $txt = Get-Content $ovr -Raw
     if($txt -match "OPERATOR-MANAGED-ENV BEGIN"){
       $txt = [regex]::Replace($txt,"# === OPERATOR-MANAGED-ENV BEGIN ===.*?# === OPERATOR-MANAGED-ENV END ===",$managed,[System.Text.RegularExpressions.RegexOptions]::Singleline)
-    } else {
-      $txt = $txt.TrimEnd() + "`r`n`r`n" + $managed
-    }
+    } else { $txt = $txt.TrimEnd() + "`r`n`r`n" + $managed }
     $txt | Set-Content -Encoding UTF8 $ovr
-  } else {
-    $managed | Set-Content -Encoding UTF8 $ovr
-  }
+  } else { $managed | Set-Content -Encoding UTF8 $ovr }
   Info "docker-compose override enforced"
 }
 
 function Enforce-GitAttributes {
 @'
 * text=auto eol=lf
-
-# Windows scripts
 *.ps1  text eol=crlf
 *.psm1 text eol=crlf
 *.bat  text eol=crlf
 *.cmd  text eol=crlf
-
-# Unix-like scripts
 *.sh   text eol=lf
-
-# App sources (LF for cross-platform/CI)
 *.ts   text eol=lf
 *.tsx  text eol=lf
 *.js   text eol=lf
@@ -84,7 +73,6 @@ function Enforce-GitAttributes {
 *.md   text eol=lf
 *.lock text eol=lf
 '@ | Set-Content -Encoding UTF8 .gitattributes
-
   git config core.autocrlf false
   git config core.eol lf
   git add --renormalize . 2>$null | Out-Null
@@ -96,19 +84,15 @@ function Enforce-Blueprint {
   try{ pwsh -File scripts/Generate-Blueprint.ps1 }catch{ Write-Warning "Generate-Blueprint.ps1 failed: $($_.Exception.Message)" }
   $bpDir = "docs\blueprint"; EnsureDir $bpDir
   $latest = Get-ChildItem $bpDir -Filter "ChillChill-Blueprint-*.md" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-  if($latest){
-    Copy-Item -Force $latest.FullName (Join-Path $bpDir "BLUEPRINT.md")
-    Info "BLUEPRINT.md canonicalized"
-  } else {
-    Write-Warning "No timestamped blueprint found; BLUEPRINT.md not updated."
-  }
+  if($latest){ Copy-Item -Force $latest.FullName (Join-Path $bpDir "BLUEPRINT.md"); Info "BLUEPRINT.md canonicalized" }
+  else{ Write-Warning "No timestamped blueprint found; BLUEPRINT.md not updated." }
 }
 
 function Commit-And-Push {
   git add .gitattributes docker-compose.override.yml chatbot/agent-api/config/providers.json docs/blueprint/BLUEPRINT.md 2>$null | Out-Null
   git commit -m "ChillChill: enforce providers/autoswitch; NO_PROXY & CHAT_ECHO; blueprint canonical; normalize endings" 2>$null | Out-Null
   git push -u origin $BranchVar 2>$null | Out-Null
-  Info "Changes committed & pushed (branch=$BranchVar)"
+  Info ("Changes committed & pushed (branch={0})" -f $BranchVar)
 }
 
 function Rebuild-Core {
@@ -137,14 +121,14 @@ function Execute-Pass {
   Commit-And-Push
   Rebuild-Core
   $r = Run-Validate
-  $r
+  return $r
 }
 
 # --- Main: auto-loop until GREEN (max 3) ---
 $passes = 0
 $result = $null
 do {
-  $passes++
+  $passes = $passes + 1
   Info ("=== FIX PASS {0} ===" -f $passes)
   $result = Execute-Pass
 } while ( $AutoLoop.IsPresent -and $passes -lt 3 -and $result.Light -ne "GREEN" )
@@ -152,14 +136,16 @@ do {
 # --- RCA + TRAFFIC LIGHT (final) ---
 $rca = @()
 if($result -and $result.Summary){
-  $fails = $result.Summary | Where-Object Severity -eq 2
-  $warns = $result.Summary | Where-Object Severity -eq 1
+  $fails = $result.Summary | Where-Object { $_.Severity -eq 2 }
+  $warns = $result.Summary | Where-Object { $_.Severity -eq 1 }
   if($fails){ $rca += ("Remaining FAIL checks after pass {0}:" -f $passes); foreach($f in $fails){ $rca += ("- {0}: {1}" -f $f.Check, $f.Detail) } }
   if($warns){ $rca += ("Remaining WARN checks after pass {0}:" -f $passes); foreach($w in $warns){ $rca += ("- {0}: {1}" -f $w.Check, $w.Detail) } }
 }
 if(-not $rca){ $rca = @("Fix completed; no remaining WARN/FAIL detected.") }
 "`nRCA:`n" + ($rca -join "`n")
-"TRAFFIC LIGHT: " + ($result.Light ?? "AMBER")
+
+$finalLight = if($result -and $result.Light){ $result.Light } else { "AMBER" }
+"TRAFFIC LIGHT: $finalLight"
 
 # --- Rollback (quick hints) ---
 # git log --oneline -n 3
