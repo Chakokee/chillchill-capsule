@@ -1,53 +1,21 @@
-version: "3.9"
 services:
   api:
-    ports: ["8000:8000"]
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     environment:
-      - NEXT_TELEMETRY_DISABLED=1
-    command: >-
-      uvicorn main:app --host 0.0.0.0 --port 8000 --log-level info
-  ui:
-    ports: ["3000:3000"]
-    environment:
-      - PORT=3000
-      - NEXT_TELEMETRY_DISABLED=1
-      - CI=1
-    command: >-
-      sh -lc "npm ci && npm run build && npx next start -H 0.0.0.0 -p 3000"
-services:
-  api:
-    environment:
-      - CHAT_ECHO=false
-      - NO_PROXY=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
-      - no_proxy=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
-  ui:
-    environment:
-      - NO_PROXY=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
-      - no_proxy=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
-
-# === OPERATOR-MANAGED-ENV BEGIN ===
-services:
-  api:
-    env_file:
-      - .env
-    environment:
+      BIND_HOST: "0.0.0.0"
+      PORT: "8000"
       CHAT_ECHO: "false"
-      NO_PROXY: "localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal"
-      no_proxy: "localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal"
+      SEC_PATCH_11: "off"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "8000:8000"
   ui:
-    env_file:
-      - .env
-    environment:
-      NO_PROXY: "localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal"
-      no_proxy: "localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal"
-# === OPERATOR-MANAGED-ENV END ===
-
-
-
-
-
-
-
-
-
-
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"

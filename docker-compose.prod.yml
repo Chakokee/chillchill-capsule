@@ -1,0 +1,28 @@
+services:
+  api:
+    container_name: chill_api_prodlike
+    command:
+      - sh
+      - -lc
+      - |
+        if [ -x /app/entrypoint_wrapper.sh ]; then
+          exec /app/entrypoint_wrapper.sh;
+        else
+          echo "[prodlike] wrapper missing -> fallback to uvicorn 127.0.0.1:8000";
+          exec uvicorn main:app --host 127.0.0.1 --port 8000;
+        fi
+    environment:
+      SEC_PATCH_11: "on"
+      BIND_HOST: "127.0.0.1"
+      PORT: "8000"
+    ports: []          # ensure no host bind — avoid 8000 collision
+    depends_on: {}     # do not start deps during smoke test
+    healthcheck:
+      test: ["CMD-SHELL","curl -fsS http://localhost:8000/__health || curl -fsS http://localhost:8000/health"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+  redis:
+    container_name: chill_redis_prodlike
+  vector:
+    container_name: chill_vector_prodlike

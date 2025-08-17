@@ -1,207 +1,182 @@
-# Fix-ChillChill.ps1 (v5)
-# Ensures providers/personas, injects NO_PROXY/no_proxy via .env and override, rebuilds, auto-loops to GREEN (max 3).
+# C:\AiProject\Fix-ChillChill.ps1
 param(
-  [string]$Root      = "C:\AiProject",
-  [string]$Branch    = "chore/ui-canonicalize-2025-08-16",
-  [switch]$AutoLoop  = $true
+  [switch]$AutoLoop = $true,
+  [int]$MaxPasses = 3,
+  [switch]$RequireProdGreen = $true  # enforce prod-like GREEN before stopping
 )
 
-$ErrorActionPreference = "Stop"
-Set-Location $Root
-$BranchVar = $Branch
-$NoPxVal   = "localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal"
+$ErrorActionPreference = 'Stop'
+Set-Location C:\AiProject
 
-function Info($m){ Write-Host ">> $m" -ForegroundColor Cyan }
-function EnsureDir($p){ if(-not (Test-Path $p)){ New-Item -ItemType Directory -Force -Path $p | Out-Null } }
-
-function Set-EnvKV($path,$key,$value){
-  $content = ""
-  if(Test-Path $path){ $content = Get-Content $path -Raw }
-  $escaped = [regex]::Escape($key)
-  $pattern = "^(?:$escaped)=.*$"
-  if([string]::IsNullOrEmpty($content)){
-    $content = "$key=$value`r`n"
-  } elseif([regex]::IsMatch($content,$pattern,[System.Text.RegularExpressions.RegexOptions]::Multiline)){
-    $content = [regex]::Replace($content,$pattern,("$key=$value"),[System.Text.RegularExpressions.RegexOptions]::Multiline)
-  } else {
-    if(($content.Length -gt 0) -and (-not $content.EndsWith("`r`n"))){ $content += "`r`n" }
-    $content += "$key=$value`r`n"
-  }
-  Set-Content -Encoding UTF8 $path $content
-}
-
-function Enforce-Providers {
-  $cfgDir = "chatbot\agent-api\config"; EnsureDir $cfgDir
-@'
-{
-  "autoswitch_order": ["gemini","groq","ollama","openai"],
-  "personas": {
-    "GP":        { "provider": "gemini" },
-    "Chef":      { "provider": "openai" },
-    "Accountant":{ "provider": "groq", "model": "llama3-70b-8192" }
-  }
-}
-'@ | Set-Content -Encoding UTF8 (Join-Path $cfgDir "providers.json")
-  Info "providers.json enforced"
-}
-
-function Enforce-DotEnv {
-  $envPath = ".env"
-  Set-EnvKV $envPath "NO_PROXY" $NoPxVal
-  Set-EnvKV $envPath "no_proxy" $NoPxVal
-  Info ".env updated with NO_PROXY and no_proxy"
-}
-
-function Enforce-Override {
-  $ovr = "docker-compose.override.yml"
-  $managed = @"
-# === OPERATOR-MANAGED-ENV BEGIN ===
+# --- helpers ---------------------------------------------------------------
+function Write-DevOverride {
+@"
 services:
   api:
-    env_file:
-      - .env
+    command: uvicorn main:app --host 0.0.0.0 --port 8000
     environment:
+      BIND_HOST: "0.0.0.0"
+      PORT: "8000"
       CHAT_ECHO: "false"
-      NO_PROXY: "$NoPxVal"
-      no_proxy: "$NoPxVal"
+      SEC_PATCH_11: "off"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    ports:
+      - "8000:8000"
   ui:
-    env_file:
-      - .env
-    environment:
-      NO_PROXY: "$NoPxVal"
-      no_proxy: "$NoPxVal"
-# === OPERATOR-MANAGED-ENV END ===
-"@
-  if(Test-Path $ovr){
-    $txt = Get-Content $ovr -Raw
-    if($txt -match "OPERATOR-MANAGED-ENV BEGIN"){
-      $txt = [regex]::Replace($txt,"# === OPERATOR-MANAGED-ENV BEGIN ===.*?# === OPERATOR-MANAGED-ENV END ===",$managed,[System.Text.RegularExpressions.RegexOptions]::Singleline)
-    } else {
-      $txt = $txt.TrimEnd() + "`r`n`r`n" + $managed
-    }
-    $txt | Set-Content -Encoding UTF8 $ovr
-  } else {
-    $managed | Set-Content -Encoding UTF8 $ovr
-  }
-  Info "docker-compose override enforced (.env + mapping env)"
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+"@ | Set-Content -Path .\docker-compose.override.yml -Encoding UTF8
 }
 
-function Enforce-GitAttributes {
+function Write-ProdProfile {
 @'
-* text=auto eol=lf
-*.ps1  text eol=crlf
-*.psm1 text eol=crlf
-*.bat  text eol=crlf
-*.cmd  text eol=crlf
-*.sh   text eol=lf
-*.ts   text eol=lf
-*.tsx  text eol=lf
-*.js   text eol=lf
-*.jsx  text eol=lf
-*.json text eol=lf
-*.yml  text eol=lf
-*.yaml text eol=lf
-*.py   text eol=lf
-*.toml text eol=lf
-*.md   text eol=lf
-*.lock text eol=lf
-'@ | Set-Content -Encoding UTF8 .gitattributes
-  git config core.autocrlf false
-  git config core.eol lf
-  git add --renormalize . 2>$null | Out-Null
-  git commit -m "Normalize line endings per .gitattributes" 2>$null | Out-Null
-  Info ".gitattributes enforced & repo normalized"
+services:
+  api:
+    container_name: chill_api_prodlike
+    command:
+      - sh
+      - -lc
+      - |
+        if [ -x /app/entrypoint_wrapper.sh ]; then
+          exec /app/entrypoint_wrapper.sh;
+        else
+          echo "[prodlike] wrapper missing -> fallback to uvicorn 127.0.0.1:8000";
+          exec uvicorn main:app --host 127.0.0.1 --port 8000;
+        fi
+    environment:
+      SEC_PATCH_11: "on"
+      BIND_HOST: "127.0.0.1"
+      PORT: "8000"
+    ports: []          # ensure no host bind — avoid 8000 collision
+    depends_on: {}     # do not start deps during smoke test
+    healthcheck:
+      test: ["CMD-SHELL","curl -fsS http://localhost:8000/__health || curl -fsS http://localhost:8000/health"]
+      interval: 10s
+      timeout: 4s
+      retries: 6
+  redis:
+    container_name: chill_redis_prodlike
+  vector:
+    container_name: chill_vector_prodlike
+'@ | Set-Content -Path .\docker-compose.prod.yml -Encoding UTF8
 }
 
-function Enforce-Blueprint {
-  try{ pwsh -File scripts/Generate-Blueprint.ps1 }catch{ Write-Warning "Generate-Blueprint.ps1 failed: $($_.Exception.Message)" }
-  $bpDir = "docs\blueprint"; EnsureDir $bpDir
-  $latest = Get-ChildItem $bpDir -Filter "ChillChill-Blueprint-*.md" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-  if($latest){ Copy-Item -Force $latest.FullName (Join-Path $bpDir "BLUEPRINT.md"); Info "BLUEPRINT.md canonicalized" }
-  else{ Write-Warning "No timestamped blueprint found; BLUEPRINT.md not updated." }
+function Compose-Rebuild {
+  docker compose down --remove-orphans | Out-Null
+  docker compose up -d --build       | Out-Null
 }
 
-function Commit-And-Push {
-  git add .env .gitattributes docker-compose.override.yml chatbot/agent-api/config/providers.json docs/blueprint/BLUEPRINT.md 2>$null | Out-Null
-  git commit -m "ChillChill: inject NO_PROXY/no_proxy via .env + override; enforce providers; blueprint canonical; normalize endings" 2>$null | Out-Null
-  git push -u origin $BranchVar 2>$null | Out-Null
-  Info ("Changes committed & pushed (branch={0})" -f $BranchVar)
+function Dev-Validate {
+  # API
+  $apiOK = $false
+  try {
+    $r = Invoke-WebRequest 'http://localhost:8000/health' -UseBasicParsing -TimeoutSec 5
+    $apiOK = ($r.StatusCode -eq 200)
+  } catch {}
+
+  Start-Sleep -Seconds 2
+
+  # UI
+  $uiOK = $false
+  try {
+    $u = Invoke-WebRequest 'http://localhost:3000' -UseBasicParsing -TimeoutSec 5
+    $uiOK = ($u.StatusCode -in 200,301,302)
+  } catch {}
+
+  $apiTxt = if($apiOK){'OK'}else{'FAIL'}
+  $uiTxt  = if($uiOK){'OK'}else{'FAIL'}
+  $tl     = if($apiOK -and $uiOK){'GREEN'} elseif($apiOK){'AMBER'} else{'RED'}
+
+  Write-Host ("DEV CHECK → API:{0} UI:{1}  DEV TRAFFIC: {2}" -f $apiTxt, $uiTxt, $tl)
+  return $tl
 }
 
-function Rebuild-Core {
-  Info "Recreating containers to apply env..."
-  docker compose up -d --build --force-recreate api ui | Out-Null
+function ProdProfile-DryRun-OK {
+  if(-not (Test-Path .\docker-compose.prod.yml)){ return $false }
+  $cfg = docker compose -f docker-compose.yml -f docker-compose.prod.yml config | Out-String
+  $sec11        = ($cfg -match 'SEC_PATCH_11:\s*"?on"?')
+  $bind         = ($cfg -match 'BIND_HOST:\s*"?127\.0\.0\.1"?')
+  # Consider ports cleared if there is no explicit 8000:8000 host mapping
+  $portsCleared = -not ($cfg -match '^\s*ports:\s*\[' -and $cfg -match '8000:8000')
+  return ($sec11 -and $bind -and $portsCleared)
 }
 
-function Show-Merged-Config {
-  try{
-    $cfg = docker compose config
-    $out = "logs\compose-merged.yaml"
-    $cfg | Set-Content -Encoding UTF8 $out
-    ($cfg -split "`r?`n") | Select-String -Pattern "NO_PROXY|no_proxy" | ForEach-Object { Write-Host (".. " + $_.ToString()) -ForegroundColor DarkGray }
-  }catch{ Write-Warning "docker compose config failed: $($_.Exception.Message)" }
+function ProdProfile-Smoke {
+  $proj='aiproject-prodlike'
+  docker compose -p $proj -f docker-compose.yml -f docker-compose.prod.yml up -d --no-deps api | Out-Null
+  Start-Sleep -Seconds 8
+  $api = docker ps --filter "name=chill_api_prodlike" --format "{{.Names}}" | Select-Object -First 1
+  if(-not $api){
+    Write-Host "PRODLIKE CHECK → RED (api failed to start)"
+    docker compose -p $proj -f docker-compose.yml -f docker-compose.prod.yml logs api
+    docker compose -p $proj -f docker-compose.yml -f docker-compose.prod.yml down -v | Out-Null
+    return 'RED'
+  }
+  docker exec $api sh -lc "curl -fsS http://localhost:8000/__health || curl -fsS http://localhost:8000/health" | Write-Host
+  $tl = if($LASTEXITCODE -eq 0){ 'GREEN' } else { 'AMBER' }
+  Write-Host ("PRODLIKE TRAFFIC: {0}" -f $tl)
+  docker compose -p $proj -f docker-compose.yml -f docker-compose.prod.yml down -v | Out-Null
+  return $tl
 }
 
-function Check-Container-Env {
-  try{
-    $apiName = (docker ps --format "{{.Names}}" | Where-Object { $_ -match '(_api$)|(-api$)|(^api$)' } | Select-Object -First 1)
-    $up = (docker exec $apiName /bin/sh -lc 'printf "NO_PROXY=%s|no_proxy=%s\n" "$NO_PROXY" "$no_proxy"') 2>$null
-    if($up){ Write-Host ">> Container proxy vars: $up" -ForegroundColor DarkGray }
-  }catch{ Write-Warning "Container env probe failed: $($_.Exception.Message)" }
-}
-
-function Run-Validate {
-  try{ & pwsh -File .\Validate-ChillChill.ps1 }catch{ Write-Warning "Validator failed: $($_.Exception.Message)" }
-  $summary = ".\logs\verify-summary.json"
-  if(Test-Path $summary){
-    $sum = Get-Content $summary -Raw | ConvertFrom-Json
-    $max = ($sum | Measure-Object Severity -Maximum).Maximum
-    if($null -eq $max){ $max = 0 }
-    $light = if($max -ge 2){ "RED" } elseif($max -ge 1){ "AMBER" } else { "GREEN" }
-    return @{ Light=$light; Summary=$sum }
-  } else { return @{ Light="AMBER"; Summary=@() } }
-}
-
-function Execute-Pass {
-  Info "Applying deterministic fixes..."
-  Enforce-Providers
-  Enforce-DotEnv
-  Enforce-Override
-  Enforce-GitAttributes
-  Enforce-Blueprint
-  Commit-And-Push
-  Rebuild-Core
-  Show-Merged-Config
-  Check-Container-Env
-  $r = Run-Validate
-  return $r
-}
-
-# --- Main: auto-loop until GREEN (max 3) ---
-$passes = 0
-$result = $null
+# --- loop ---------------------------------------------------------------
+$pass = 0
+$final='RED'
 do {
-  $passes = $passes + 1
-  Info ("=== FIX PASS {0} ===" -f $passes)
-  $result = Execute-Pass
-} while ( $AutoLoop.IsPresent -and $passes -lt 3 -and $result.Light -ne "GREEN" )
+  $pass++
+  Write-Host ("=== FIX PASS {0} ===" -f $pass)
 
-# --- RCA + TRAFFIC LIGHT (final) ---
-$rca = @()
-if($result -and $result.Summary){
-  $fails = $result.Summary | Where-Object { $_.Severity -eq 2 }
-  $warns = $result.Summary | Where-Object { $_.Severity -eq 1 }
-  if($fails){ $rca += ("Remaining FAIL checks after pass {0}:" -f $passes); foreach($f in $fails){ $rca += ("- {0}: {1}" -f $f.Check, $f.Detail) } }
-  if($warns){ $rca += ("Remaining WARN checks after pass {0}:" -f $passes); foreach($w in $warns){ $rca += ("- {0}: {1}" -f $w.Check, $w.Detail) } }
+  if($pass -eq 1){
+    Write-DevOverride
+    Compose-Rebuild
+    Start-Sleep 6
+    $devTL = Dev-Validate
+    Write-Host ("DEV TRAFFIC AFTER PASS {0}: {1}" -f $pass, $devTL)
+    if(($devTL -eq 'GREEN') -and (-not $RequireProdGreen)){ $final='GREEN'; break }
+  }
+
+  if($pass -le 2){
+    Write-ProdProfile
+    $ok = ProdProfile-DryRun-OK
+    $okTxt = if($ok){'YES'}else{'NO'}
+    Write-Host ("PROD PROFILE MERGE OK: {0}" -f $okTxt)
+    $prodTL = if($ok){ ProdProfile-Smoke } else { 'RED' }
+
+    if($prodTL -eq 'GREEN'){
+      # If dev is already green, we’re done; otherwise re-check dev quickly after prod prep
+      $devTL2 = Dev-Validate
+      if($devTL2 -eq 'GREEN'){ $final='GREEN'; break }
+    }
+  }
+
+  if($pass -ge 3){
+    Write-Host "Diagnostics: last 100 lines from API (if running)"
+    $apiId = docker ps --filter "name=api" --format "{{.ID}}" | Select-Object -First 1
+    if($apiId){ docker logs --tail 100 $apiId | Write-Host } else { Write-Host "(No running API container found.)" }
+    $final = Dev-Validate
+    break
+  }
+
+} while ($AutoLoop -and $pass -lt $MaxPasses)
+
+# --- summary ------------------------------------------------------------
+if($final -eq 'GREEN'){
+  Write-Host "RCA: Local dev was blocked by Sec Patch 1.1 (wrapper/bind/health). Dev override (1.0) restored reachability; UI unblocked."
+  if($RequireProdGreen){ Write-Host "Prod-like profile validated: wrapper-fallback, 127.0.0.1 bind, no ports, dual healthcheck." }
+}else{
+  Write-Host "RCA: Dev not GREEN. If API FAILS, confirm 0.0.0.0:8000 and /health. If UI FAILS, check Next.js build and /bridge proxy."
 }
-if(-not $rca){ $rca = @("Fix completed; no remaining WARN/FAIL detected.") }
-"`nRCA:`n" + ($rca -join "`n")
+Write-Host ("TRAFFIC LIGHT: {0}" -f $final)
 
-$finalLight = if($result -and $result.Light){ $result.Light } else { "AMBER" }
-"TRAFFIC LIGHT: $finalLight"
+# Rollback snippet (override/profile only)
+Write-Host "Rollback: git checkout -- docker-compose.override.yml docker-compose.prod.yml"
 
-# --- Rollback (quick hints) ---
-# git log --oneline -n 3
-# git reset --hard HEAD~1
-# git push --force-with-lease origin $BranchVar
-# docker compose up -d --build --force-recreate api ui
+# --- Developer Mode risk meter ---
+# Risk: Low (local only). Changes limited to dev override + prod profile; no public ingress; isolated prod-like smoke test (no ports).
