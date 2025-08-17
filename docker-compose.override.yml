@@ -24,3 +24,16 @@ services:
     environment:
       - NO_PROXY=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
       - no_proxy=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
+
+# === OPERATOR-MANAGED-ENV BEGIN ===
+services:
+  api:
+    environment:
+      - CHAT_ECHO=false
+      - NO_PROXY=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
+      - no_proxy=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
+  ui:
+    environment:
+      - NO_PROXY=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
+      - no_proxy=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
+# === OPERATOR-MANAGED-ENV END ===

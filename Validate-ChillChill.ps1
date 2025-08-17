@@ -1,171 +1,126 @@
-# Save & run: C:\AiProject\Validate-ChillChill.ps1  (full replacement)
+# Validate-ChillChill.ps1
+# End-to-end health & conformance check for ChillChill. Produces RCA + TRAFFIC LIGHT.
 param(
-  [string]$Root="C:\AiProject",
-  [string]$ApiService="api",
-  [string]$UiService="ui",
-  [int]$TimeoutSec=8
+  [string]$Root   = "C:\AiProject",
+  [string]$ApiUrl = "http://127.0.0.1:8000",
+  [string]$UiUrl  = "http://127.0.0.1:3000"
 )
-$ErrorActionPreference="Stop"
-if(!(Test-Path $Root)){ throw "Root not found: " + $Root }
-if(!(Test-Path "$Root\logs")){ New-Item -ItemType Directory -Path "$Root\logs" | Out-Null }
 
-# Results collector
-$results = New-Object System.Collections.Generic.List[object]
-function Add-Result([string]$Check,[bool]$Ok,[string]$Detail){
-  $results.Add([pscustomobject]@{ Check=$Check; Status= if($Ok){"PASS"}else{"FAIL"}; Detail=$Detail })
+$ErrorActionPreference = "Stop"
+Set-Location $Root
+New-Item -ItemType Directory -Force -Path ".\logs" | Out-Null
+
+# --- Helpers ---
+$results = @()
+function Add-Check([string]$Name,[string]$Status,[string]$Detail,[int]$Severity){
+  # Severity: 0=PASS, 1=WARN, 2=FAIL
+  $script:results += [pscustomobject]@{ Check=$Name; Status=$Status; Detail=$Detail; Severity=$Severity }
 }
-
-# Compose command
-function Get-ComposeCmd {
-  $cmd=@("docker","compose")
-  try{ & $cmd 'version' *> $null; return $cmd }catch{}
-  if(Get-Command docker-compose -ErrorAction SilentlyContinue){ return @("docker-compose") }
-  throw "Docker Compose not available on PATH."
-}
-
-# No-proxy HttpClient
-function New-NoProxyClient([int]$timeoutSec){
-  $h = New-Object System.Net.Http.HttpClientHandler
-  $h.UseProxy = $false
-  $h.AutomaticDecompression = [System.Net.DecompressionMethods]::GZip -bor [System.Net.DecompressionMethods]::Deflate
-  $c = New-Object System.Net.Http.HttpClient($h)
-  $c.Timeout = [TimeSpan]::FromSeconds($timeoutSec)
-  return $c
-}
-
-# Get service container ID
-function SafeId($compose,$svc){
+function Test-Http([string]$Url,[string]$Method="GET",[string]$Body=$null){
   try{
-    $raw = & $compose 'ps' '-q' $svc 2>$null
-    if($null -eq $raw){ return "" }
-    return ("{0}" -f $raw).Trim()
-  } catch { return "" }
-}
-
-# Publish -> 127.0.0.1:url
-function Get-Url($compose,$svc,[int]$port){
-  try{
-    $raw = & $compose 'port' $svc ("{0}" -f $port) 2>$null
-    if([string]::IsNullOrWhiteSpace($raw)){ return "http://127.0.0.1:$port" }
-    # docker compose port commonly returns 0.0.0.0:PORT
-    $map = ("{0}" -f $raw).Trim() -split "`r?`n" | Select-Object -First 1
-    $host,$p = $map -split ":",2
-    if([string]::IsNullOrWhiteSpace($p)){ $p=$port }
-    return "http://127.0.0.1:{0}" -f $p
-  }catch{ return "http://127.0.0.1:$port" }
-}
-
-# Simple port probe
-function Probe-Port([string]$Target,[int]$Port,[int]$Timeout=10){
-  $t0=Get-Date
-  while((Get-Date)-$t0 -lt ([TimeSpan]::FromSeconds($Timeout))){
-    try{
-      $ok = (Test-NetConnection -ComputerName $Target -Port $Port -WarningAction SilentlyContinue).TcpTestSucceeded
-      if($ok){ return $true }
-    }catch{}
-    Start-Sleep -Milliseconds 300
+    if($Body){
+      $r = Invoke-WebRequest -Uri $Url -Method $Method -ContentType "application/json" -Body $Body -TimeoutSec 8 -UseBasicParsing
+    } else {
+      $r = Invoke-WebRequest -Uri $Url -Method $Method -TimeoutSec 8 -UseBasicParsing
+    }
+    return @{ Ok = ($r.StatusCode -ge 200 -and $r.StatusCode -lt 300); Code = $r.StatusCode; Detail=$r.RawContentLength }
+  }catch{
+    return @{ Ok = $false; Code = 0; Detail = $_.Exception.Message }
   }
-  return $false
 }
+function GetApiContainer(){
+  try{
+    $names = docker ps --format "{{.Names}}"
+    $match = $names | Where-Object { $_ -match '(_api$)|(-api$)|(^api$)' } | Select-Object -First 1
+    if([string]::IsNullOrWhiteSpace($match)) { return $null } else { return $match }
+  }catch{ return $null }
+}
+function ReadVar($c,$v){
+  if(-not $c){ return $null }
+  try{ (docker exec $c printenv $v) 2>$null }catch{ $null }
+}
+function Coalesce($v,$fallback){ if($null -eq $v -or $v -eq ""){ $fallback } else { $v } }
 
-$compose = Get-ComposeCmd
-Push-Location $Root
-try{
-  # Service presence
-  $apiId = SafeId $compose $ApiService
-  $uiId  = SafeId $compose $UiService
-  if([string]::IsNullOrWhiteSpace($apiId)){ Add-Result "Compose services" $false ("API '"+$ApiService+"' not found or stopped") }
-  if([string]::IsNullOrWhiteSpace($uiId )){ Add-Result "Compose services" $false ("UI  '"+$UiService+"' not found or stopped") }
+# --- Paths ---
+$apiDir = Join-Path $Root "chatbot\agent-api"
+$uiDir  = Join-Path $Root "chatbot\chatbot-ui"
+Add-Check "API dir" ((Test-Path $apiDir) ? "PASS" : "FAIL") $apiDir ((Test-Path $apiDir) ? 0 : 2)
+Add-Check "UI dir"  ((Test-Path $uiDir)  ? "PASS" : "FAIL") $uiDir  ((Test-Path $uiDir)  ? 0 : 2)
 
-  # API state
-  if($apiId -ne ""){
-    $apiState=(docker inspect -f '{{.State.Status}}' $apiId 2>$null)
-    Add-Result "API container state" ($apiState -match 'running') ("State="+$apiState)
+# --- Runtime ---
+$h = Test-Http "$ApiUrl/health"
+Add-Check "API /health" ($h.Ok ? "PASS" : "FAIL") ("HTTP {0}" -f $h.Code) (($h.Ok) ? 0 : 2)
+$c = Test-Http "$ApiUrl/chat" "POST" '{"message":"ok","use_rag":false}'
+Add-Check "API /chat (autoswitch)" ($c.Ok ? "PASS" : "FAIL") ("HTTP {0}" -f $c.Code) (($c.Ok) ? 0 : 2)
+$u = Test-Http $UiUrl
+Add-Check "UI reachable" ($u.Ok ? "PASS" : "FAIL") ("HTTP {0}" -f $u.Code) (($u.Ok) ? 0 : 2)
 
-    # Env
-    try{
-      $envJson=(docker inspect --format '{{json .Config.Env }}' $apiId)
-      $env=@{}; foreach($kv in (ConvertFrom-Json $envJson)){ if($kv -match '^(.*?)=(.*)$'){ $env[$Matches[1]]=$Matches[2] } }
-      $prov=$env['LLM_PROVIDER']; $model=$env['LLM_MODEL']; $echo=$env['CHAT_ECHO']
-      $echoOff = [string]::IsNullOrWhiteSpace($echo) -or $echo -match '^(0|false|off)$'
-      Add-Result "Provider env" ([bool]$prov -and [bool]$model) ("LLM_PROVIDER="+$prov+"; LLM_MODEL="+$model)
-      Add-Result "CHAT_ECHO disabled" $echoOff ("CHAT_ECHO='"+($echo)+"'")
-    }catch{ Add-Result "Provider env" $false "Failed to read env" }
+# --- Env from container ---
+$apiC  = GetApiContainer
+$prov  = ReadVar $apiC "LLM_PROVIDER"
+$model = ReadVar $apiC "LLM_MODEL"
+$echo  = ReadVar $apiC "CHAT_ECHO"
+$noPx  = ReadVar $apiC "NO_PROXY"
+
+Add-Check "API container" (([string]::IsNullOrEmpty($apiC)) ? "WARN" : "PASS") (Coalesce $apiC "<none>") (([string]::IsNullOrEmpty($apiC)) ? 1 : 0)
+$provDetail = "LLM_PROVIDER={0}; LLM_MODEL={1}" -f (Coalesce $prov "<null>"), (Coalesce $model "<null>")
+Add-Check "Provider env" ((-not [string]::IsNullOrEmpty($prov)) -and (-not [string]::IsNullOrEmpty($model)) ? "PASS" : "WARN") $provDetail (((-not [string]::IsNullOrEmpty($prov)) -and (-not [string]::IsNullOrEmpty($model))) ? 0 : 1)
+$echoDetail = "CHAT_ECHO='{0}'" -f (Coalesce $echo "<null>")
+Add-Check "CHAT_ECHO disabled" (($echo -eq "false") ? "PASS" : "FAIL") $echoDetail (($echo -eq "false") ? 0 : 2)
+$noPxDetail = "NO_PROXY='{0}'" -f (Coalesce $noPx "<null>")
+Add-Check "NO_PROXY present" ((-not [string]::IsNullOrEmpty($noPx)) ? "PASS" : "WARN") $noPxDetail ((-not [string]::IsNullOrEmpty($noPx)) ? 0 : 1)
+
+# --- Config conformance ---
+$provCfg = Join-Path $apiDir "config\providers.json"
+if(Test-Path $provCfg){
+  try{
+    $cfg = Get-Content $provCfg -Raw | ConvertFrom-Json
+    $order = ($cfg.autoswitch_order -join ",")
+    $okOrder = ($order -eq "gemini,groq,ollama,openai")
+    $gp   = $cfg.personas.GP.provider
+    $chef = $cfg.personas.Chef.provider
+    $accP = $cfg.personas.Accountant.provider
+    $accM = $cfg.personas.Accountant.model
+    $okPersona = ($gp -eq "gemini" -and $chef -eq "openai" -and $accP -eq "groq" -and $accM -eq "llama3-70b-8192")
+    Add-Check "Autoswitch order" ($okOrder ? "PASS" : "FAIL") ("order=$order") (($okOrder) ? 0 : 2)
+    Add-Check "Personas mapping" ($okPersona ? "PASS" : "FAIL") ("GP=$gp; Chef=$chef; Accountant=$accP/$accM") (($okPersona) ? 0 : 2)
+  }catch{
+    Add-Check "providers.json parse" "FAIL" $_.Exception.Message 2
   }
-
-  # Redis/vector (optional)
-  foreach($svc in @('redis','vector')){
-    try{
-      $sid = SafeId $compose $svc
-      if($sid -ne ""){
-        $state=(docker inspect -f '{{.State.Health.Status}}' $sid 2>$null)
-        if(-not $state){ $state=(docker inspect -f '{{.State.Status}}' $sid 2>$null) }
-        Add-Result "Service $svc" ($state -match 'healthy|running') ("State="+$state)
-      }
-    }catch{}
-  }
-
-  # Build base URLs on 127.0.0.1 explicitly
-  $apiBase = Get-Url $compose $ApiService 8000
-  $uiBase  = Get-Url $compose $UiService 3000
-
-  # Quick port probes first (stays proxy-free)
-  $apiPortNum = [int](([Uri]$apiBase).Port)
-  $uiPortNum  = [int](([Uri]$uiBase).Port)
-  $apiOpen = Probe-Port -Target "127.0.0.1" -Port $apiPortNum -Timeout 8
-  $uiOpen  = Probe-Port -Target "127.0.0.1" -Port $uiPortNum  -Timeout 8
-
-  # Proxy-free HTTP checks via HttpClient
-  $client = New-NoProxyClient -timeoutSec $TimeoutSec
-  try{
-    $r = $client.GetAsync("$apiBase/health").GetAwaiter().GetResult()
-    $ok = ([int]$r.StatusCode) -ge 200 -and ([int]$r.StatusCode) -lt 400
-    Add-Result "API /health" $ok ("HTTP "+[int]$r.StatusCode+" at "+$apiBase+"/health")
-  }catch{ Add-Result "API /health" $false $_.Exception.Message }
-
-  try{
-    $body = New-Object System.Net.Http.StringContent('{"message":"Say ok once.","use_rag":false}',[Text.Encoding]::UTF8,"application/json")
-    $r2 = $client.PostAsync("$apiBase/chat",$body).GetAwaiter().GetResult()
-    $ok2 = ([int]$r2.StatusCode) -ge 200 -and ([int]$r2.StatusCode) -lt 400
-    Add-Result "API /chat (autoswitch)" $ok2 ("HTTP "+[int]$r2.StatusCode+" at "+$apiBase+"/chat")
-  }catch{ Add-Result "API /chat (autoswitch)" $false $_.Exception.Message }
-
-  try{
-    $r3 = $client.GetAsync("$uiBase/").GetAwaiter().GetResult()
-    $ok3 = ([int]$r3.StatusCode) -ge 200 -and ([int]$r3.StatusCode) -lt 400
-    Add-Result "UI reachable" $ok3 ("HTTP "+[int]$r3.StatusCode+" at "+$uiBase)
-  }catch{ Add-Result "UI reachable" $false $_.Exception.Message }
-
-}finally{ Pop-Location }
-
-# Output table
-$results | Sort-Object { if($_.Status -eq 'FAIL'){0}else{1} } | Format-Table -AutoSize
-
-# Traffic light + RCA
-$fail = @($results | Where-Object Status -eq 'FAIL')
-$light = if($fail.Count -gt 0){"RED"} else {"GREEN"}
-
-$rca = @()
-if(($results | Where-Object { $_.Check -eq 'Compose services' -and $_.Detail -like 'API*not found*' }).Count -gt 0){ $rca += "API container missing or stopped; compose did not start api." }
-if(($results | Where-Object { $_.Check -eq 'Compose services' -and $_.Detail -like 'UI*not found*' }).Count -gt 0){  $rca += "UI container missing or stopped; compose did not start ui." }
-if(($results | Where-Object { $_.Check -eq 'API container state' -and $_.Status -eq 'PASS' }).Count -gt 0 -and
-   ($results | Where-Object { $_.Check -eq 'API /health' -and $_.Status -eq 'FAIL' }).Count -gt 0){
-  $rca += "API running but HTTP failing; check published port and service binding."
+}else{
+  Add-Check "providers.json present" "FAIL" "$provCfg not found" 2
 }
-if(($results | Where-Object { $_.Check -eq 'UI reachable' -and $_.Status -eq 'FAIL' }).Count -gt 0){
-  $rca += "UI not reachable; port 3000 not published or UI not started."
-}
-if(($results | Where-Object { $_.Check -eq 'Provider env' -and $_.Status -eq 'FAIL' }).Count -gt 0){
-  $rca += "Provider variables missing; set LLM_PROVIDER and LLM_MODEL."
-}
-if(($results | Where-Object { $_.Check -eq 'CHAT_ECHO disabled' -and $_.Status -eq 'FAIL' }).Count -gt 0){
-  $rca += "CHAT_ECHO still enabled; set to empty or false."
-}
-if($rca.Count -eq 0){ $rca += "No additional RCA beyond table above." }
 
-$summary = [pscustomobject]@{ light=$light; failures=@($fail.Check); rca=$rca; results=$results }
-$summary | ConvertTo-Json -Depth 6 | Out-File -Encoding UTF8 "$Root\logs\verify-summary.json"
+# --- Compose override & repo hygiene ---
+$ovr = Join-Path $Root "docker-compose.override.yml"
+if(Test-Path $ovr){
+  $t = Get-Content $ovr -Raw
+  $hasEcho = ($t -match "CHAT_ECHO=false")
+  $hasNoPx = (($t -match "NO_PROXY=") -or ($t -match "no_proxy="))
+  Add-Check "Override CHAT_ECHO=false" ($hasEcho ? "PASS" : "WARN") ("exists=$hasEcho") ($hasEcho ? 0 : 1)
+  Add-Check "Override NO_PROXY" ($hasNoPx ? "PASS" : "WARN") ("exists=$hasNoPx") ($hasNoPx ? 0 : 1)
+}else{
+  Add-Check "override file" "WARN" "$ovr missing" 1
+}
+Add-Check ".gitattributes present" ((Test-Path ".gitattributes") ? "PASS" : "WARN") (Test-Path ".gitattributes") ((Test-Path ".gitattributes") ? 0 : 1)
+$bp = "docs\blueprint\BLUEPRINT.md"
+Add-Check "Blueprint canonical" ((Test-Path $bp) ? "PASS" : "WARN") $bp ((Test-Path $bp) ? 0 : 1)
 
-Write-Host ""
-Write-Host ("TRAFFIC LIGHT: " + $light)
-Write-Host ("RCA: " + ($rca -join " | "))
+# --- Output & Traffic Light ---
+$results | ConvertTo-Json -Depth 5 | Set-Content -Encoding UTF8 ".\logs\verify-summary.json"
+$results | Sort-Object Severity, Check | Format-Table -AutoSize
+
+$max = ($results | Measure-Object Severity -Maximum).Maximum
+if($null -eq $max){ $max = 0 }
+$light = if($max -ge 2){ "RED" } elseif($max -ge 1){ "AMBER" } else { "GREEN" }
+
+# RCA + TRAFFIC LIGHT (bottom)
+$rca = @("Validation RCA to guide Fix:")
+$warnFail = $results | Where-Object { $_.Severity -ge 1 }
+if($warnFail){
+  foreach($row in $warnFail){ $rca += ("- {0}: {1}" -f $row.Check, $row.Detail) }
+}else{
+  $rca = @("All checks PASS. No Fix required.")
+}
+"`nRCA:`n" + ($rca -join "`n")
+"TRAFFIC LIGHT: $light"

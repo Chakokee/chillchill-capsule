@@ -1,84 +1,168 @@
+# Fix-ChillChill.ps1
+# Applies deterministic fixes, rebuilds, re-validates; optional auto-loop until GREEN (max 3 passes).
 param(
-  [string]$Root="C:\AiProject",
-  [int]$ApiPort=8000,
-  [int]$UiPort=3000,
-  [string]$ApiService="api",
-  [string]$UiService="ui"
+  [string]$Root      = "C:\AiProject",
+  [string]$Branch    = "chore/ui-canonicalize-2025-08-16",
+  [switch]$AutoLoop  = $true   # auto enabled for this session per your choice
 )
-$ErrorActionPreference="Stop"
 
-# Paths
-$LOGS = Join-Path $Root "logs"
-$VAL  = Join-Path $Root "Validate-ChillChill.ps1"
-if(!(Test-Path $Root)){ throw "Root not found: " + $Root }
-if(!(Test-Path $LOGS)){ New-Item -ItemType Directory -Path $LOGS | Out-Null }
+$ErrorActionPreference = "Stop"
+Set-Location $Root
+$BranchVar = $Branch
 
-function ComposeCmd {
-  $cmd=@("docker","compose")
-  try{ & $cmd 'version' *> $null; return $cmd }catch{}
-  if(Get-Command docker-compose -ErrorAction SilentlyContinue){ return @("docker-compose") }
-  throw "Docker Compose not available on PATH."
-}
-$compose = ComposeCmd
+function Info($m){ Write-Host ">> $m" -ForegroundColor Cyan }
+function EnsureDir($p){ if(-not (Test-Path $p)){ New-Item -ItemType Directory -Force -Path $p | Out-Null } }
 
-# Helper: wait for port
-function Wait-Port([string]$Target,[int]$Port,[int]$Timeout=45){
-  $t0=Get-Date
-  while((Get-Date)-$t0 -lt ([TimeSpan]::FromSeconds($Timeout))){
-    try{
-      $ok = (Test-NetConnection -ComputerName $Target -Port $Port -WarningAction SilentlyContinue).TcpTestSucceeded
-      if($ok){ return $true }
-    }catch{}
-    Start-Sleep -Milliseconds 500
+function Enforce-Providers {
+  $cfgDir = "chatbot\agent-api\config"; EnsureDir $cfgDir
+  @'
+{
+  "autoswitch_order": ["gemini","groq","ollama","openai"],
+  "personas": {
+    "GP":        { "provider": "gemini" },
+    "Chef":      { "provider": "openai" },
+    "Accountant":{ "provider": "groq", "model": "llama3-70b-8192" }
   }
-  return $false
+}
+'@ | Set-Content -Encoding UTF8 (Join-Path $cfgDir "providers.json")
+  Info "providers.json enforced"
 }
 
-Push-Location $Root
-try{
-  # 1) Build+start API/UI and capture logs
-  $upOut = Join-Path $LOGS "compose-up.log"
-  Remove-Item $upOut -Force -ErrorAction SilentlyContinue | Out-Null
-  "`n=== docker compose up -d --build $ApiService $UiService ===`n" | Out-File -FilePath $upOut -Encoding ASCII
-  $proc = Start-Process -FilePath "docker" `
-    -ArgumentList @("compose","up","-d","--build",$ApiService,$UiService) `
-    -NoNewWindow -PassThru `
-    -RedirectStandardOutput $upOut -RedirectStandardError $upOut
-  $proc.WaitForExit()
-  if($proc.ExitCode -ne 0){
-    Write-Host "TRAFFIC LIGHT: RED"
-    Write-Host ("RCA: docker compose up failed for services '" + $ApiService + "', '" + $UiService + "'. See " + $upOut)
-    Get-Content $upOut -Tail 80 | ForEach-Object { Write-Host $_ }
-    exit 1
-  }
-
-  # 2) Wait for ports to open
-  $apiOpen = Wait-Port -Target "localhost" -Port $ApiPort -Timeout 45
-  $uiOpen  = Wait-Port -Target "localhost" -Port $UiPort  -Timeout 45
-  Write-Host ("API port " + $ApiPort + ": " + ($(if($apiOpen){"OPEN"}else{"CLOSED"})))
-  Write-Host ("UI  port " + $UiPort  + ": " + ($(if($uiOpen) {"OPEN"}else{"CLOSED"})))
-
-  # 3) Run validator and echo its summary
-  if(Test-Path $VAL){
-    & powershell -NoProfile -ExecutionPolicy Bypass -File $VAL -ApiService $ApiService -UiService $UiService
-    $sumPath = Join-Path $LOGS "verify-summary.json"
-    if(Test-Path $sumPath){
-      $sum = Get-Content $sumPath -Raw | ConvertFrom-Json
-      Write-Host ""
-      Write-Host "=== SUMMARY ==="
-      Write-Host ("Traffic Light: " + $sum.light)
-      if($sum.failures){ Write-Host ("Failures: " + ($sum.failures -join ", ")) }
-      if($sum.rca){ Write-Host ("RCA: " + ($sum.rca -join " | ")) }
-      if($sum.light -ne "GREEN"){ exit 1 } else { exit 0 }
+function Enforce-Override {
+  $ovr = "docker-compose.override.yml"
+  $managed = @"
+# === OPERATOR-MANAGED-ENV BEGIN ===
+services:
+  api:
+    environment:
+      - CHAT_ECHO=false
+      - NO_PROXY=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
+      - no_proxy=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
+  ui:
+    environment:
+      - NO_PROXY=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
+      - no_proxy=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
+# === OPERATOR-MANAGED-ENV END ===
+"@
+  if(Test-Path $ovr){
+    $txt = Get-Content $ovr -Raw
+    if($txt -match "OPERATOR-MANAGED-ENV BEGIN"){
+      $txt = [regex]::Replace($txt,"# === OPERATOR-MANAGED-ENV BEGIN ===.*?# === OPERATOR-MANAGED-ENV END ===",$managed,[System.Text.RegularExpressions.RegexOptions]::Singleline)
     } else {
-      Write-Host "TRAFFIC LIGHT: AMBER"
-      Write-Host "RCA: Validator summary not found; check services manually."
-      exit 1
+      $txt = $txt.TrimEnd() + "`r`n`r`n" + $managed
     }
+    $txt | Set-Content -Encoding UTF8 $ovr
   } else {
-    Write-Host "TRAFFIC LIGHT: AMBER"
-    Write-Host "RCA: Validator script not found; rerun Validate-ChillChill.ps1."
-    exit 1
+    $managed | Set-Content -Encoding UTF8 $ovr
+  }
+  Info "docker-compose override enforced"
+}
+
+function Enforce-GitAttributes {
+@'
+* text=auto eol=lf
+
+# Windows scripts
+*.ps1  text eol=crlf
+*.psm1 text eol=crlf
+*.bat  text eol=crlf
+*.cmd  text eol=crlf
+
+# Unix-like scripts
+*.sh   text eol=lf
+
+# App sources (LF for cross-platform/CI)
+*.ts   text eol=lf
+*.tsx  text eol=lf
+*.js   text eol=lf
+*.jsx  text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.py   text eol=lf
+*.toml text eol=lf
+*.md   text eol=lf
+*.lock text eol=lf
+'@ | Set-Content -Encoding UTF8 .gitattributes
+
+  git config core.autocrlf false
+  git config core.eol lf
+  git add --renormalize . 2>$null | Out-Null
+  git commit -m "Normalize line endings per .gitattributes" 2>$null | Out-Null
+  Info ".gitattributes enforced & repo normalized"
+}
+
+function Enforce-Blueprint {
+  try{ pwsh -File scripts/Generate-Blueprint.ps1 }catch{ Write-Warning "Generate-Blueprint.ps1 failed: $($_.Exception.Message)" }
+  $bpDir = "docs\blueprint"; EnsureDir $bpDir
+  $latest = Get-ChildItem $bpDir -Filter "ChillChill-Blueprint-*.md" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+  if($latest){
+    Copy-Item -Force $latest.FullName (Join-Path $bpDir "BLUEPRINT.md")
+    Info "BLUEPRINT.md canonicalized"
+  } else {
+    Write-Warning "No timestamped blueprint found; BLUEPRINT.md not updated."
   }
 }
-finally{ Pop-Location }
+
+function Commit-And-Push {
+  git add .gitattributes docker-compose.override.yml chatbot/agent-api/config/providers.json docs/blueprint/BLUEPRINT.md 2>$null | Out-Null
+  git commit -m "ChillChill: enforce providers/autoswitch; NO_PROXY & CHAT_ECHO; blueprint canonical; normalize endings" 2>$null | Out-Null
+  git push -u origin $BranchVar 2>$null | Out-Null
+  Info "Changes committed & pushed (branch=$BranchVar)"
+}
+
+function Rebuild-Core {
+  Info "Rebuilding containers..."
+  docker compose up -d --build api ui | Out-Null
+}
+
+function Run-Validate {
+  try{ & pwsh -File .\Validate-ChillChill.ps1 }catch{ Write-Warning "Validator failed: $($_.Exception.Message)" }
+  $summary = ".\logs\verify-summary.json"
+  if(Test-Path $summary){
+    $sum = Get-Content $summary -Raw | ConvertFrom-Json
+    $max = ($sum | Measure-Object Severity -Maximum).Maximum
+    if($null -eq $max){ $max = 0 }
+    $light = if($max -ge 2){ "RED" } elseif($max -ge 1){ "AMBER" } else { "GREEN" }
+    return @{ Light=$light; Summary=$sum }
+  } else { return @{ Light="AMBER"; Summary=@() } }
+}
+
+function Execute-Pass {
+  Info "Applying deterministic fixes..."
+  Enforce-Providers
+  Enforce-Override
+  Enforce-GitAttributes
+  Enforce-Blueprint
+  Commit-And-Push
+  Rebuild-Core
+  $r = Run-Validate
+  $r
+}
+
+# --- Main: auto-loop until GREEN (max 3) ---
+$passes = 0
+$result = $null
+do {
+  $passes++
+  Info ("=== FIX PASS {0} ===" -f $passes)
+  $result = Execute-Pass
+} while ( $AutoLoop.IsPresent -and $passes -lt 3 -and $result.Light -ne "GREEN" )
+
+# --- RCA + TRAFFIC LIGHT (final) ---
+$rca = @()
+if($result -and $result.Summary){
+  $fails = $result.Summary | Where-Object Severity -eq 2
+  $warns = $result.Summary | Where-Object Severity -eq 1
+  if($fails){ $rca += ("Remaining FAIL checks after pass {0}:" -f $passes); foreach($f in $fails){ $rca += ("- {0}: {1}" -f $f.Check, $f.Detail) } }
+  if($warns){ $rca += ("Remaining WARN checks after pass {0}:" -f $passes); foreach($w in $warns){ $rca += ("- {0}: {1}" -f $w.Check, $w.Detail) } }
+}
+if(-not $rca){ $rca = @("Fix completed; no remaining WARN/FAIL detected.") }
+"`nRCA:`n" + ($rca -join "`n")
+"TRAFFIC LIGHT: " + ($result.Light ?? "AMBER")
+
+# --- Rollback (quick hints) ---
+# git log --oneline -n 3
+# git reset --hard HEAD~1
+# git push --force-with-lease origin $BranchVar
+# docker compose up -d --build api ui

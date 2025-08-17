@@ -1,7 +1,7 @@
 # ChillChill Blueprint
 
-- Generated: 2025-08-17 16:51
-- Git: tag=v0.3.0-checkpoint-20250816, sha=5143ecb
+- Generated: 2025-08-17 17:13
+- Git: tag=v0.3.0-checkpoint-20250816, sha=0cdd4db
 
 ## Goals
 - Multi-LLM with auto-switch (OpenAI, Groq, Gemini, Ollama)
@@ -87,6 +87,8 @@ AUTOSWITCH_ORDER=gemini,groq,ollama,openai
 
 ## Change Summary (recent)
 ```
+0cdd4db Blueprint: enforce canonical BLUEPRINT.md; track .gitattributes
+94d3cdd Blueprint: regenerate after provider/persona updates
 5143ecb ChillChill: proxy-agnostic validator, stable compose up, UI lint bypass & AppClient placeholder, blueprint regenerated
 b3f3509 chore(checkpoint): overlay + autoswitch plan captured in blueprint
 18658e8 chore(api): accept 'auto'/*/any as autoswitch; update blueprint
