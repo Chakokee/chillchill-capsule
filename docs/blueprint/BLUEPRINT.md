@@ -1,106 +1,23 @@
-# ChillChill Blueprint
+# ChillChill Capsule — Living Blueprint
+_Last updated: 
 
-- Generated: 2025-08-17 17:27
-- Git: tag=v0.3.0-checkpoint-20250816, sha=c5aae31
+## Architecture
+- UI: Next.js (Docker, port 3000)
+- API: FastAPI /chat, /health
+- Vector: Qdrant · Cache: Redis
 
-## Goals
-- Multi-LLM with auto-switch (OpenAI, Groq, Gemini, Ollama)
-- RAG: store and retrieve documents (Qdrant)
-- Domain profiles: general_prac, accountant, chef
-- Private network access (LAN), optional TLS via Caddy
-- Living blueprint that maps all changes
+## Providers & Personas
+- LLM_PROVIDER: **ollama**
+- LLM_MODEL: **llama3.2:3b**
+- Autoswitch order: ****
+- Personas: GP→Gemini; Chef→OpenAI; Accountant→Groq (llama3-70b-8192)
 
-## Runtime Topology (docker compose)
-_compose config unavailable_
+## Runtime Config
+- CHAT_ECHO: **false**
+- docker-compose: C:\AiProject\docker-compose.yml
+- docker-compose.override: C:\AiProject\docker-compose.override.yml
 
-## Providers
-| provider | enabled | model |
-|---|---:|---|
-| openai | 1 | llama3.2:3b |
-| groq | 1 | llama3-70b-8192 |
-| gemini | 1 | gemini-1.5-flash-latest |
-| ollama | 1 | llama3.2:3b |
-
-- Order: ollama,groq,gemini,openai
-
-## RAG
-- Vector host: vector
-- Vector port: 6333
-- Collection: chill_docs
-- Embeddings: OpenAI=text-embedding-3-small; Ollama=nomic-embed-text
-
-## Profiles
-- Active profiles: default, general_prac, accountant, chef
-- Profile collections: chill_docs_profileName (e.g., chill_docs_general_prac)
-
-## API Surface
-- /health
-- /chat (provider, use_rag, profile, inventory, diet, time_limit, appliances)
-- /rag/ingest, /rag/ingest/profile, /rag/query
-
-## UI → API Bridge
-```js
-/** @type {import('next').NextConfig} */
-const nextConfig = {
-  eslint: { ignoreDuringBuilds: true },
-  typescript: { ignoreBuildErrors: true },
-  images: { unoptimized: true }
-};
-module.exports = nextConfig;
-
-```
-
-## Env (secrets masked)
-```
-EMBED_MODEL_OPENAI=text-embedding-3-small
-GROQ_API_KEY=
-GOOGLE_API_KEY=
-OLLAMA_HOST=http://chill_ollama:11434
-GEMINI_API_KEY=AIza*********************************Vw
-RAG_COLLECTION=chill_docs
-AUTOSWITCH_ENABLED=true
-OLLAMA_EMBED_MODEL=nomic-embed-text
-GEMINI_MODEL=gemini-1.5-flash-latest
-VECTOR_HOST=vector
-GROQ_ENABLED=1
-PROVIDER_DEBUG=1
-OPENAI_ENABLED=1
-CHAT_ECHO=false
-OLLAMA_MODEL=llama3.2:3b
-PROVIDER_ORDER=ollama,groq,gemini,openai
-GEMINI_ENABLED=1
-LLM_MODEL=llama3.2:3b
-OLLAMA_ENABLED=1
-LOG_LEVEL=DEBUG
-VECTOR_PORT=6333
-LLM_PROVIDER=ollama
-OPENAI_API_KEY=sk-s*****************************************************************************************************************************************************************AA
-GROQ_MODEL=llama3-70b-8192
-AUTOSWITCH_ORDER=gemini,groq,ollama,openai
-no_proxy=localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal
-```
-
-## Change Summary (recent)
-```
-c5aae31 ChillChill: enforce providers/autoswitch; NO_PROXY/no_proxy via mapping env; blueprint canonical; normalize endings
-bfcd429 ChillChill: enforce providers/autoswitch; NO_PROXY/no_proxy via mapping env; blueprint canonical; normalize endings
-78e146c ChillChill: enforce providers/autoswitch; NO_PROXY/no_proxy via mapping env; blueprint canonical; normalize endings
-868fd28 ChillChill: enforce providers/autoswitch; NO_PROXY/no_proxy via mapping env; blueprint canonical; normalize endings
-da5f629 ChillChill: enforce providers/autoswitch; NO_PROXY & CHAT_ECHO; blueprint canonical; normalize endings
-702dbbf ChillChill: enforce providers/autoswitch; NO_PROXY & CHAT_ECHO; blueprint canonical; normalize endings
-339a0b7 ChillChill: enforce providers/autoswitch; NO_PROXY & CHAT_ECHO; blueprint canonical; normalize endings
-8efe9c6 ChillChill: enforce providers/autoswitch; NO_PROXY & CHAT_ECHO; blueprint canonical; normalize endings
-7089bee ChillChill: enforce providers/autoswitch; NO_PROXY & CHAT_ECHO; blueprint canonical; normalize endings
-5d08e5f ChillChill: enforce providers/autoswitch; NO_PROXY & CHAT_ECHO; blueprint canonical; normalize endings
-0cdd4db Blueprint: enforce canonical BLUEPRINT.md; track .gitattributes
-94d3cdd Blueprint: regenerate after provider/persona updates
-5143ecb ChillChill: proxy-agnostic validator, stable compose up, UI lint bypass & AppClient placeholder, blueprint regenerated
-b3f3509 chore(checkpoint): overlay + autoswitch plan captured in blueprint
-18658e8 chore(api): accept 'auto'/*/any as autoswitch; update blueprint
-fe83b39 feat(ollama): fix env updater; ensure ollama up and models present; refresh blueprint
-f2ba4b0 chore: add PR template with blueprint checklist
-58f11ee policy: block direct pushes to main via pre-push hook
-8dddfb0 chore: add CODEOWNERS
-84a135f ci: add Blueprint Guard workflow
-```
-
+## Effective docker compose (excerpt)
+~~~yaml
+name: aiproject services:   api:     build:       context: C:\AiProject\chatbot\agent-api       dockerfile: Dockerfile     container_name: chill_api     depends_on:       redis:         condition: service_healthy         required: true       vector:         condition: service_started         required: true     environment:       API_PORT: "8000"       AUTOSWITCH_ENABLED: "true"       AUTOSWITCH_ORDER: gemini,groq,ollama,openai       CHAT_ECHO: "false"       EMBED_MODEL_OPENAI: text-embedding-3-small       GEMINI_API_KEY: AIzaSyDml3AXe4VA6ZQK3kusCyLY2bFh1mxq6Vw       GEMINI_ENABLED: "1"       GEMINI_MODEL: gemini-1.5-flash-latest       GOOGLE_API_KEY: ""       GROQ_API_KEY: ""       GROQ_ENABLED: "1"       GROQ_MODEL: llama3-70b-8192       LLM_MODEL: llama3.2:3b       LLM_PROVIDER: ollama       LOG_LEVEL: DEBUG       NO_PROXY: localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal       OLLAMA_EMBED_MODEL: nomic-embed-text       OLLAMA_ENABLED: "1"       OLLAMA_HOST: http://chill_ollama:11434       OLLAMA_MODEL: llama3.2:3b       OPENAI_API_KEY: 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       OPENAI_ENABLED: "1"       PROVIDER_DEBUG: "1"       PROVIDER_ORDER: ollama,groq,gemini,openai       PYTHONUNBUFFERED: "1"       RAG_COLLECTION: chill_docs       REDIS_HOST: redis       REDIS_PORT: "6379"       VECTOR_HOST: vector       VECTOR_PORT: "6333"       no_proxy: localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal     extra_hosts:       - host.docker.internal=host-gateway     healthcheck:       test:         - CMD         - wget         - -qO-         - http://localhost:8000/health       timeout: 3s       interval: 10s       retries: 6       start_period: 15s     networks:       default: null     ports:       - mode: ingress         target: 8000         published: "8000"         protocol: tcp     restart: unless-stopped   redis:     container_name: chill_redis     healthcheck:       test:         - CMD         - redis-cli         - ping       timeout: 2s       interval: 5s       retries: 30       start_period: 5s     image: redis:alpine     networks:       default: null     ports:       - mode: ingress         target: 6379         published: "6379"         protocol: tcp     restart: unless-stopped   ui:     build:       context: C:\AiProject\chatbot\chatbot-ui       dockerfile: Dockerfile     container_name: chill_ui     depends_on:       api:         condition: service_healthy         required: true     environment:       AUTOSWITCH_ENABLED: "true"       AUTOSWITCH_ORDER: gemini,groq,ollama,openai       CHAT_ECHO: "false"       EMBED_MODEL_OPENAI: text-embedding-3-small       GEMINI_API_KEY: AIzaSyDml3AXe4VA6ZQK3kusCyLY2bFh1mxq6Vw       GEMINI_ENABLED: "1"       GEMINI_MODEL: gemini-1.5-flash-latest       GOOGLE_API_KEY: ""       GROQ_API_KEY: ""       GROQ_ENABLED: "1"       GROQ_MODEL: llama3-70b-8192       LLM_MODEL: llama3.2:3b       LLM_PROVIDER: ollama       LOG_LEVEL: DEBUG       NEXT_PUBLIC_API_BASE_URL: http://localhost:8000       NO_PROXY: localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal       NODE_ENV: production       OLLAMA_EMBED_MODEL: nomic-embed-text       OLLAMA_ENABLED: "1"       OLLAMA_HOST: http://chill_ollama:11434       OLLAMA_MODEL: llama3.2:3b       OPENAI_API_KEY: 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       OPENAI_ENABLED: "1"       PROVIDER_DEBUG: "1"       PROVIDER_ORDER: ollama,groq,gemini,openai       RAG_COLLECTION: chill_docs       VECTOR_HOST: vector       VECTOR_PORT: "6333"       no_proxy: localhost,127.0.0.1,api,ui,redis,vector,host.docker.internal     healthcheck:       test:         - CMD         - wget         - -qO-         - http://localhost:3000/       timeout: 3s       interval: 7s       retries: 30       start_period: 15s     networks:       default: null     ports:       - mode: ingress         target: 3000         published: "3000"         protocol: tcp     restart: unless-stopped   vector:     container_name: chill_vector     image: qdrant/qdrant:latest     networks:       default: null     ports:       - mode: ingress         target: 6333         published: "6333"         protocol: tcp     restart: unless-stopped     volumes:       - type: volume         source: vector_data         target: /qdrant/storage         volume: {} networks:   default:     name: aiproject_default volumes:   vector_data:     name: aiproject_vector_data 
+~~~
