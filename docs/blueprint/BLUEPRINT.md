@@ -1,7 +1,7 @@
 # ChillChill Blueprint
 
 - Generated: 2025-08-17 17:20
-- Git: tag=v0.3.0-checkpoint-20250816, sha=78e146c
+- Git: tag=v0.3.0-checkpoint-20250816, sha=bfcd429
 
 ## Goals
 - Multi-LLM with auto-switch (OpenAI, Groq, Gemini, Ollama)
@@ -87,6 +87,7 @@ AUTOSWITCH_ORDER=gemini,groq,ollama,openai
 
 ## Change Summary (recent)
 ```
+bfcd429 ChillChill: enforce providers/autoswitch; NO_PROXY/no_proxy via mapping env; blueprint canonical; normalize endings
 78e146c ChillChill: enforce providers/autoswitch; NO_PROXY/no_proxy via mapping env; blueprint canonical; normalize endings
 868fd28 ChillChill: enforce providers/autoswitch; NO_PROXY/no_proxy via mapping env; blueprint canonical; normalize endings
 da5f629 ChillChill: enforce providers/autoswitch; NO_PROXY & CHAT_ECHO; blueprint canonical; normalize endings
@@ -106,6 +107,5 @@ f2ba4b0 chore: add PR template with blueprint checklist
 8dddfb0 chore: add CODEOWNERS
 84a135f ci: add Blueprint Guard workflow
 41e28b1 chore(ollama): point API to host.docker.internal; refresh blueprint
-b576caa chore(blueprint): refresh after compose change
 ```
 
