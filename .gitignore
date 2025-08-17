@@ -20,3 +20,15 @@ logs/
 .backups/
 chatbot/chatbot-ui/.backups/
 # ------------------------------------------------------
+# --- Operator Safe Cleanup: ignore backup artifacts ---
+*.bak
+*.bak_*
+*.bak.*
+*.bak_operator
+*.bak_ui_fix
+*.old
+*.orig
+*.tmp
+.backups/
+chatbot/chatbot-ui/.backups/
+# ------------------------------------------------------
