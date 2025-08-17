@@ -1,17 +1,11 @@
-"use client";
-
-import React from "react";
-import ChatControls from "../../components/ChatControls";
+import AppClient from "@/components/AppClient";
 
 export default function Page() {
-  // quick runtime probe so we know this file is actually live:
-  if (typeof window !== "undefined") {
-    fetch("/api/health").then(r=>r.json()).then(x=>console.log("[page.tsx] /api/health =", x)).catch(console.error);
-  }
   return (
-    <main className="p-4 space-y-4">
-      <h1 className="text-2xl font-bold">ChillChill</h1>
-      <ChatControls />
+    <main className="min-h-screen bg-black text-white">
+      <div className="max-w-3xl mx-auto py-6">
+        <AppClient />
+      </div>
     </main>
   );
 }

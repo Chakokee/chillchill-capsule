@@ -1,16 +1,16 @@
-# FILE: C:\AiProject\chatbot\agent-api\main.py
-# PURPOSE: FastAPI app exposing /health, /models, /warmup, and NEW /chat
-# SAFE DEFAULT: minimal echo pipeline to restore UI↔API flow; replace with real logic later
+# FILE: main.py — Operator clean version
+# Purpose: FastAPI with real /chat routed to providers.chat_with_fallback
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any
-import os, time, uuid
+import logging
+from typing import Optional
+import os
 
 app = FastAPI(title="ChillChill API")
 
-# Allow local UI origins
+# CORS for local UI
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
@@ -19,51 +19,49 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-ENABLE_TRACE = (os.getenv("ENABLE_TRACE", "false").lower() == "true")
+# --- Models ---
+class ChatReq(BaseModel):
+    message: str = Field(..., description="User message")
+    provider: Optional[str] = None
+    model: Optional[str] = None
+    use_rag: Optional[bool] = False
+    temperature: Optional[float] = 0.2
 
+# --- Config defaults ---
+DEF_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower()
+DEF_MODEL    = os.getenv("LLM_MODEL", "gpt-4o-mini")
+ECHO_MODE    = os.getenv("CHAT_ECHO", "false").lower() in ("1","true","yes","on")
+
+# --- Health & misc ---
 @app.get("/health")
-def health() -> Dict[str, str]:
+def health():
     return {"status": "ok"}
 
 @app.get("/models")
-def models() -> Dict[str, Any]:
-    return {"models": ["gpt-4o-mini", "llama3-8b", "claude-3-haiku"]}
+def models():
+    # Reflect common models; could be made dynamic
+    return {"models": [DEF_MODEL or "gpt-4o-mini", "llama3-8b", "claude-3-haiku"]}
 
 @app.post("/warmup")
-def warmup() -> Dict[str, bool]:
+def warmup():
     return {"warmed": True}
 
-# NEW Chat endpoint
-class ChatIn(BaseModel):
-    message: str = Field(..., min_length=1)
-    provider: Optional[str] = "auto"
-    model: Optional[str] = None
-    trace: Optional[bool] = False
+# --- Chat routed to providers ---
+@app.post("/chat")
+async def chat(req: ChatReq):
+    if ECHO_MODE:
+        return {"answer": f"Echo: {req.message}"}
 
-class ChatOut(BaseModel):
-    answer: str
-    trace: Optional[Dict[str, Any]] = None
+    # Choose provider/model from request or env defaults
+    provider = (req.provider or DEF_PROVIDER or "openai").lower()
+    model    = (req.model or DEF_MODEL or "gpt-4o-mini")
 
-@app.post("/chat", response_model=ChatOut)
-def chat(req: ChatIn) -> ChatOut:
-    t0 = time.time()
-    trace_id = str(uuid.uuid4())
-
-    # Placeholder — swap with your real pipeline: route -> RAG -> LLM -> postproc
-    answer = f"Echo: {req.message}"
-    chosen_provider = req.provider or "auto"
-    chosen_model = req.model or "default"
-
-    payload: Dict[str, Any] = {"answer": answer}
-    if ENABLE_TRACE and req.trace:
-        payload["trace"] = {
-            "trace_id": trace_id,
-            "routing": {"provider": chosen_provider, "model": chosen_model},
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "cost_est_usd": 0.0},
-            "latency_ms": int((time.time() - t0) * 1000),
-        }
-    return ChatOut(**payload)
-
-@app.exception_handler(Exception)
-async def unhandled_exc_handler(_, exc: Exception):
-    raise HTTPException(status_code=500, detail=f"Internal error: {type(exc).__name__}")
+    try:
+        from providers import chat_with_fallback
+        out = await chat_with_fallback(provider, model, req.message, req.temperature or 0.2)
+        if not out:
+            raise RuntimeError("Provider chain returned no output")
+        return {"answer": out}
+    except Exception as e:
+        # Surface real failure so we don't silently echo
+        logging.exception("chat failure"); raise HTTPException(status_code=502, detail=str(e))

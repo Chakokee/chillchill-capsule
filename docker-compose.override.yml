@@ -1,6 +1,16 @@
+version: "3.9"
 services:
+  api:
+    ports: ["8000:8000"]
+    environment:
+      - NEXT_TELEMETRY_DISABLED=1
+    command: >-
+      uvicorn main:app --host 0.0.0.0 --port 8000 --log-level info
   ui:
-    # You can add local-only tweaks here; keep it minimal to avoid drift.
-    # Ports are already set in base, but keeping it here is fine for clarity.
-    ports:
-      - ":3000"# test
+    ports: ["3000:3000"]
+    environment:
+      - PORT=3000
+      - NEXT_TELEMETRY_DISABLED=1
+      - CI=1
+    command: >-
+      sh -lc "npm ci && npm run build && npx next start -H 0.0.0.0 -p 3000"

@@ -1,3 +1,4 @@
+/* eslint-disable */
 import fs from 'fs';
 
 type Fingerprint = {
@@ -22,3 +23,4 @@ export function requireOperatorFingerprint() {
   if (j.risk_meter !== 'on') fail('risk_meter must be on');
   if (j.paste_ready_code !== true) fail('paste_ready_code must be true');
 }
+
