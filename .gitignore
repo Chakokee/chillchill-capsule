@@ -8,3 +8,15 @@ logs/
 # Operator local state
 /operator/operator.memory.json
 /mode/dev.fingerprint.json
+# --- Operator Safe Cleanup: ignore backup artifacts ---
+*.bak
+*.bak_*
+*.bak.*
+*.bak_operator
+*.bak_ui_fix
+*.old
+*.orig
+*.tmp
+.backups/
+chatbot/chatbot-ui/.backups/
+# ------------------------------------------------------
