@@ -1,21 +1,29 @@
 services:
   api:
-    command: uvicorn main:app --host 0.0.0.0 --port 8000
     environment:
-      BIND_HOST: "0.0.0.0"
-      PORT: "8000"
-      CHAT_ECHO: "false"
-      SEC_PATCH_11: "off"
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
-      interval: 10s
-      timeout: 3s
-      retries: 5
-    ports:
-      - "8000:8000"
+      - VOICE_ENABLED=\
+      - VOICE_PROVIDER=\
+      - VOICE_PROFILE=\
+      - VOICE_LANG=\
+      - VOICE_SAMPLE_RATE=\
+
   ui:
     depends_on:
       api:
         condition: service_healthy
+
+  piper:
+    image: rhasspy/wyoming-piper:latest
+    container_name: chill_piper
+    restart: unless-stopped
+    command: >
+      --voice en_US-amy-low
+      --piper /usr/bin/piper
+      --data-dir /data
+      --uri tcp://0.0.0.0:10200
+      --update-voices
     ports:
-      - "3000:3000"
+      - "10200:10200"
+    volumes:
+      - ./piper:/data
+

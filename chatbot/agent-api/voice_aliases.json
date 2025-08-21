@@ -1,0 +1,14 @@
+{
+  "default": "cheerful_female",
+  "aliases": {
+    "cheerful_female": [
+      "JennyNeural",
+      "AriaNeural",
+      "en-AU-NatashaNeural",
+      "elevenlabs-bella",
+      "coqui-cheerful-female"
+    ]
+  },
+  "version": "1.0",
+  "policy": "non-negotiable: cheerful female (free tier)"
+}

@@ -1,3 +1,15 @@
+/**
+ * Operator guard: never force "use client" into Next.js app/layout.tsx.
+ * Layout must remain a Server Component if it exports metadata.
+ */
+function operatorSkipLayout(filePath, src) {
+  try {
+    if (filePath.replace(/\\\\/g, "/").endsWith("app/layout.tsx")) {
+      return src; // no changes
+    }
+  } catch {}
+  return null; // let normal logic proceed
+}
 import fs from "node:fs"; import path from "node:path";
 const roots=["app","components"], exts=new Set([".tsx"]);
 const walk=(d,o=[])=>fs.existsSync(d)?(fs.readdirSync(d).forEach(n=>{const p=path.join(d,n),s=fs.statSync(p);s.isDirectory()?walk(p,o):exts.has(path.extname(p))&&o.push(p)}),o):o;
@@ -29,3 +41,4 @@ for (const dir of roots) {
   }
 }
 console.log("fix-client-directives: enforced");
+

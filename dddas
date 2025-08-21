@@ -1,0 +1,66 @@
+[33mcommit 04c09020df38a5d63371497a2927a776c8d76cc4[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mchore/ui-canonicalize-2025-08-16[m[33m)[m
+Author: Wil (ChillChill) <wil@example.local>
+Date:   Sun Aug 17 22:48:28 2025 +1000
+
+    ChillChill: blueprint regenerated & normalized (LF); dev rollback GREEN; add resilient prod profile; single Fix loop
+
+M	.gitattributes
+M	.githooks/pre-commit
+M	.githooks/pre-push
+M	.github/CODEOWNERS
+M	.gitignore
+M	.vscode/tasks.json
+M	Diag.bat
+M	Fix-ChillChill.ps1
+M	Start-Prepull.bat
+M	Start.bat
+M	Stop.bat
+M	Validate-ChillChill.ps1
+M	chatbot/agent-api/.dockerignore
+M	chatbot/agent-api/config/providers.json
+M	chatbot/agent-api/main.py.bak
+M	chatbot/agent-api/main.py.bak_20250816181150
+M	chatbot/agent-api/main.py.bak_20250816181329
+M	chatbot/agent-api/providers.py.bak
+M	chatbot/agent-api/rag.py
+M	chatbot/agent-api/requirements.txt
+M	chatbot/chatbot-ui/.backups/ChatControls.tsx.bak_operator
+M	chatbot/chatbot-ui/.backups/Dockerfile.txt.bak
+M	chatbot/chatbot-ui/.backups/RagPanel.tsx.20250810_183917.bak
+M	chatbot/chatbot-ui/.backups/page.tsx.broken
+M	chatbot/chatbot-ui/.dockerignore
+M	chatbot/chatbot-ui/components/AppClient.tsx
+M	chatbot/chatbot-ui/components/ChatControls.tsx
+M	chatbot/chatbot-ui/components/RagPanel.tsx
+M	chatbot/chatbot-ui/package.json
+M	chatbot/chatbot-ui/public/probe.html
+M	chatbot/chatbot-ui/scripts/fix-client-directives.mjs
+M	chatbot/chatbot-ui/scripts/guard-client-imports.mjs
+M	chatbot/chatbot-ui/src/app/layout.tsx
+M	chatbot/chatbot-ui/src/app/page.tsx
+M	chatbot/chatbot-ui/src/app/page.tsx.bak_ui_fix
+M	chatbot/chatbot-ui/src/components/AppClient.tsx
+M	chatbot/chatbot-ui/tsconfig.json
+M	docker-compose.override.yml
+M	docker-compose.override.yml.bak-20250816
+A	docker-compose.prod.yml
+D	docs/blueprint/BLUEPRINT.md
+M	folder_structure.txt
+M	ingest/create_demo_docs.py
+M	ingest/ingest_docs.py
+M	init_vector.py
+M	operator/operator.config.json
+M	operator/operator.lock.json
+M	project_structure.txt
+M	sample.txt
+M	sample_docs/quickstart.txt
+M	sample_docs/release_notes.txt
+M	scripts/Restart-All.bat
+M	scripts/Start-All.bat
+M	scripts/Stop-All.bat
+M	start-all.ps1.bak
+M	tools/Diag.bat
+M	tools/Start-Prepull.bat
+M	tools/Start.bat
+M	tools/Stop.bat
+M	ui-tree.txt

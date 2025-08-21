@@ -19,8 +19,9 @@
     "fix:client": "node scripts/fix-client-directives.mjs",
     "lint": "next lint",
     "start": "next start -H 0.0.0.0 -p 3000",
-    "prebuild": "npm run fix:client && node scripts/guard-client-imports.mjs",
+    "prebuild": "node scripts/guard-client-imports.mjs",
     "dev": "next dev",
     "build": "next build"
   }
 }
+

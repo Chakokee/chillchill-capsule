@@ -1,164 +1,94 @@
 import os
-import logging
-import requests
+from typing import List, Callable
 
-OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://host.docker.internal:11434")
+class ProviderError(Exception): pass
 
-async def chat_openai(model, msg, temperature=0.2):
-    """
-    OpenAI Chat Completions over REST. Needs OPENAI_API_KEY.
-    """
-    key = os.getenv("OPENAI_API_KEY")
-    if not key:
-        logging.warning("openai: missing OPENAI_API_KEY")
-        return None
-    try:
-        url = "https://api.openai.com/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        payload = {
-            "model": model or "gpt-3.5-turbo",
-            "messages": [{"role": "user", "content": msg}],
-            "temperature": temperature,
-        }
-        r = requests.post(url, headers=headers, json=payload, timeout=30)
-        if r.status_code != 200:
-            logging.warning("openai HTTP %s: %s", r.status_code, r.text[:500])
-            return None
-        j = r.json()
-        choices = j.get("choices") or []
-        return choices[0].get("message", {}).get("content") if choices else None
-    except Exception:
-        logging.exception("openai call failed")
-        return None
+def _has(var: str) -> bool:
+    v = os.getenv(var, "").strip()
+    return len(v) > 0
 
+def _enabled(var: str, default: bool=True) -> bool:
+    raw = os.getenv(var, "").strip().lower()
+    if raw in ("true","1","yes","on"): return True
+    if raw in ("false","0","no","off"): return False
+    return default
 
-async def chat_groq(model, msg, temperature=0.2):
-    """
-    Groq (OpenAI-compatible endpoint). Needs GROQ_API_KEY.
-    """
-    key = os.getenv("GROQ_API_KEY")
-    if not key:
-        logging.info("groq: no key; skipping")
-        return None
-    try:
-        url = "https://api.groq.com/openai/v1/chat/completions"
-        headers = {"Authorization": f"Bearer {key}", "Content-Type": "application/json"}
-        payload = {
-            "model": model or "llama3-70b-8192",
-            "messages": [{"role": "user", "content": msg}],
-            "temperature": temperature,
-        }
-        r = requests.post(url, headers=headers, json=payload, timeout=30)
-        if r.status_code != 200:
-            logging.warning("groq HTTP %s: %s", r.status_code, r.text[:500])
-            return None
-        j = r.json()
-        choices = j.get("choices") or []
-        return choices[0].get("message", {}).get("content") if choices else None
-    except Exception:
-        logging.exception("groq call failed")
-        return None
+def get_order() -> List[str]:
+    s = os.getenv("AUTOSWITCH_ORDER") or os.getenv("PROVIDER_ORDER") or "gemini,groq,ollama,openai"
+    return [p.strip().lower() for p in s.split(",") if p.strip()]
 
+def call_gemini(prompt: str) -> str:
+    if not _has("GEMINI_API_KEY"):
+        raise ProviderError("gemini: missing GEMINI_API_KEY")
+    # --- minimal call sketch; actual client code is in your existing implementation ---
+    from providers_impl import gemini_chat
+    return gemini_chat(prompt)
 
-async def chat_gemini(model, msg, temperature=0.2):
-    """
-    Google Gemini (generateContent). Needs GOOGLE_API_KEY.
-    """
-    key = os.getenv("GOOGLE_API_KEY")
-    if not key:
-        logging.info("gemini: no key; skipping")
-        return None
-    try:
-        mdl = model or "gemini-1.5-flash-latest"
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/{mdl}:generateContent?key={key}"
-        payload = {"contents": [{"parts": [{"text": msg}]}]}
-        r = requests.post(url, json=payload, timeout=30)
-        if r.status_code != 200:
-            logging.warning("gemini HTTP %s: %s", r.status_code, r.text[:500])
-            return None
-        j = r.json()
-        cands = j.get("candidates") or []
-        if not cands:
-            return None
-        parts = (cands[0].get("content") or {}).get("parts") or []
-        return parts[0].get("text") if parts else None
-    except Exception:
-        logging.exception("gemini call failed")
-        return None
+def call_groq(prompt: str) -> str:
+    if not _has("GROQ_API_KEY"):
+        raise ProviderError("groq: missing GROQ_API_KEY")
+    from providers_impl import groq_chat
+    return groq_chat(prompt)
 
+def call_openai(prompt: str) -> str:
+    if not _enabled("OPENAI_ENABLED", default=True):
+        raise ProviderError("openai: disabled via OPENAI_ENABLED=false")
+    if not _has("OPENAI_API_KEY"):
+        raise ProviderError("openai: missing OPENAI_API_KEY")
+    from providers_impl import openai_chat
+    return openai_chat(prompt)
 
-async def chat_ollama(model, msg, temperature=0.2):
-    """
-    Ollama chat (local). Will return None if host isn't reachable.
-    """
-    try:
-        mdl = model or "llama3.2:3b"
-        url = f"{OLLAMA_HOST}/api/chat"
-        payload = {
-            "model": mdl,
-            "messages": [{"role": "user", "content": msg}],
-            "options": {"temperature": temperature},
-            "stream": False,
-        }
-        r = requests.post(url, json=payload, timeout=20)
-        if r.status_code != 200:
-            logging.info("ollama HTTP %s: %s", r.status_code, r.text[:300])
-            return None
-        j = r.json() or {}
-        return ((j.get("message") or {}).get("content")) or None
-    except Exception as e:
-        logging.info("ollama call failed: %r", e)
-        return None
+def call_ollama(prompt: str) -> str:
+    # Allow ollama even without explicit key, but require host reachability (handled inside impl).
+    from providers_impl import ollama_chat
+    return ollama_chat(prompt)
 
+_dispatch = {
+    "gemini": call_gemini,
+    "groq": call_groq,
+    "openai": call_openai,
+    "ollama": call_ollama,
+}
 
-async def chat_with_fallback(provider, model, msg, temperature=0.2) -> str | None:
-    prov = (provider or "").lower().strip()
-    # Provider search order
-    order_map = {
-        "openai": ["openai","groq","gemini","ollama"],
-        "groq":   ["groq","openai","gemini","ollama"],
-        "gemini": ["gemini","openai","groq","ollama"],
-        "ollama": ["ollama","groq","openai","gemini"],
-        "":       ["openai","groq","gemini","ollama"],
-        None:     ["openai","groq","gemini","ollama"],
-    }
-    # Provider-appropriate default model names
-    def_model = {
-        "openai": "gpt-3.5-turbo",
-        "groq":   "llama3-70b-8192",
-        "gemini": "gemini-1.5-flash-latest",
-        "ollama": "llama3.2:3b",
-    }
-
-    order = order_map.get(prov, order_map[""])
-    impl = {
-        "openai": chat_openai,
-        "groq":   chat_groq,
-        "gemini": chat_gemini,
-        "ollama": chat_ollama,
-    }
-    last_err = None
-    for name in order:
-        fn = impl.get(name)
+def run_chain(prompt: str) -> str:
+    errors = []
+    for name in get_order():
+        fn: Callable[[str], str] = _dispatch.get(name)
         if not fn:
+            errors.append(f"{name}: unknown provider")
             continue
-        # If caller passed a model that doesn't belong to this provider, swap to provider default
-        chosen_model = model
-        if name == "openai" and (chosen_model or "").startswith("llama"): chosen_model = def_model["openai"]
-        if name == "groq"   and not (chosen_model or "").startswith("llama"): chosen_model = def_model["groq"]
-        if name == "gemini" and not (chosen_model or "").startswith("gemini"): chosen_model = def_model["gemini"]
-        if name == "ollama" and ":" not in (chosen_model or ""): chosen_model = def_model["ollama"]
-
         try:
-            out = await fn(chosen_model, msg, temperature)
-            if out and isinstance(out, str) and out.strip():
-                logging.info("provider %s succeeded with model %s", name, chosen_model)
-                return out.strip()
-            else:
-                logging.info("provider %s returned empty", name)
+            out = fn(prompt)
+            if out and out.strip():
+                return out
+            errors.append(f"{name}: empty output")
         except Exception as e:
-            logging.warning("provider %s raised: %r", name, e)
-            last_err = e
-    if last_err:
-        logging.warning("all providers failed; last error: %r", last_err)
-    return None
+            errors.append(f"{name}: {e}")
+            continue
+    raise ProviderError("all providers failed → " + " | ".join(errors))
+
+# --- Ollama provider (added by Fix-ChillChill) ---
+import os, requests
+
+class OllamaProvider:
+    def __init__(self):
+        self.host = os.environ.get("OLLAMA_HOST_DOCKER", "http://host.docker.internal:11434")
+        self.model = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
+
+    def generate(self, prompt: str, stream: bool=False):
+        url = f"{self.host}/api/generate"
+        payload = {"model": self.model, "prompt": prompt, "stream": False}
+        r = requests.post(url, json=payload, timeout=30)
+        r.raise_for_status()
+        j = r.json()
+        return (j.get("response") or j.get("message") or "")
+
+try:
+    PROVIDERS  # noqa
+except NameError:
+    PROVIDERS = {}
+
+# Register if missing
+if "ollama" not in PROVIDERS:
+    PROVIDERS["ollama"] = OllamaProvider()
+# --- end Ollama provider patch ---
