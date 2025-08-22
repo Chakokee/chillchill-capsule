@@ -17,6 +17,11 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+      - name: Assert LFS pointers exist
+        shell: pwsh
+        run: |
+          $lfs = git lfs ls-files
+          if (-not $lfs) { throw "No Git LFS files detected — expected ONNX/PT/BIN/etc." }
 
       - name: Enable long paths (Windows quirk)
         run: git config --global core.longpaths true
