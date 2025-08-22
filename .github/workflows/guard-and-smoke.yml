@@ -1,0 +1,61 @@
+name: Guard & Smoke
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+concurrency:
+  group: guard-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  guard-smoke:
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Enable long paths (Windows quirk)
+        run: git config --global core.longpaths true
+        shell: pwsh
+
+      - name: Guard config + runtime
+        run: pwsh -NoLogo -NoProfile -File .\GuardAndSmoke.ps1 -NoPause
+        shell: pwsh
+
+      - name: Spin up services (detached)
+        run: |
+          docker version
+          docker compose up -d --remove-orphans
+          docker compose ps
+        shell: pwsh
+
+      - name: Validate stack
+        run: |
+          if (Test-Path .\Validate-ChillChill.ps1) {
+            pwsh -NoLogo -NoProfile -File .\Validate-ChillChill.ps1
+          } else {
+            Write-Host "Validator not found; running minimal probes..."
+            $health = (Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -TimeoutSec 10).StatusCode
+            if ($health -ne 200) { throw "API /health failed: $health" }
+          }
+        shell: pwsh
+
+      - name: Capture API logs on failure
+        if: failure()
+        run: |
+          try { docker compose logs api > api.logs.txt } catch {}
+          try { docker compose logs ui  > ui.logs.txt }  catch {}
+        shell: pwsh
+
+      - name: Upload logs (if any)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: chillchill-logs
+          path: |
+            api.logs.txt
+            ui.logs.txt
