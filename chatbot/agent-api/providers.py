@@ -1,3 +1,6 @@
+PROVIDER_ORDER = ['ollama','groq','gemini','openai']
+OLLAMA_MODEL = 'llama3.2:3b'
+GROQ_MODEL = 'llama3-70b-8192'
 import os
 from typing import List, Callable
 
@@ -92,3 +95,4 @@ except NameError:
 if "ollama" not in PROVIDERS:
     PROVIDERS["ollama"] = OllamaProvider()
 # --- end Ollama provider patch ---
+

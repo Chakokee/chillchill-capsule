@@ -1,29 +1,8 @@
 services:
+  ui:
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: "http://127.0.0.1:8000"
   api:
     environment:
-      - VOICE_ENABLED=\
-      - VOICE_PROVIDER=\
-      - VOICE_PROFILE=\
-      - VOICE_LANG=\
-      - VOICE_SAMPLE_RATE=\
-
-  ui:
-    depends_on:
-      api:
-        condition: service_healthy
-
-  piper:
-    image: rhasspy/wyoming-piper:latest
-    container_name: chill_piper
-    restart: unless-stopped
-    command: >
-      --voice en_US-amy-low
-      --piper /usr/bin/piper
-      --data-dir /data
-      --uri tcp://0.0.0.0:10200
-      --update-voices
-    ports:
-      - "10200:10200"
-    volumes:
-      - ./piper:/data
-
+      CHAT_ECHO: ""
+      OLLAMA_HOST: "http://host.docker.internal:11434"

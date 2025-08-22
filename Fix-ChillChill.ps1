@@ -1,99 +1,63 @@
-# Fix-ChillChill.ps1 — Dual-host Ollama env + provider patch + rebuild (fixed 2025-08-21)
+# Fix-ChillChill.ps1  (v4)
+[CmdletBinding()]
 param(
-  [switch]$AutoLoop,
-  [int]$MaxPasses = 3
+  [switch]$EnableOllamaContainer,
+  [switch]$AutoPullModel,           # pulls if Ollama reachable but empty
+  [string]$Model = "llama3.2:3b",
+  [int]$MaxWaitSec = 20
 )
 
 $ErrorActionPreference = 'Stop'
-$root='C:\AiProject'
-$api = Join-Path $root 'chatbot\agent-api'
-$envP= Join-Path $root '.env'
-function say($m,$c='Gray'){ Write-Host $m -ForegroundColor $c }
+$root = Get-Location
+$validatorPath = Join-Path $root 'Validate-ChillChill.ps1'
+if (-not (Test-Path $validatorPath)) { throw "Validator not found at $validatorPath" }
 
-# Helpers
-function Set-Or-AppendLine {
-  param([string]$Text,[string]$Key,[string]$Value)
-  $pattern = "(?m)^\s*$([regex]::Escape($Key))\s*="
-  if ($Text -match $pattern) {
-    return ([regex]::Replace($Text,$pattern,"$Key=$Value"))
+# Backup validator
+$ts  = Get-Date -Format 'yyyyMMdd-HHmmss'
+Copy-Item $validatorPath "$validatorPath.$ts.bak" -Force
+
+# Overwrite with safe validator content (from the message)
+$validatorText = @'
+<<VALIDATOR_CONTENT>>
+'@.Replace('<<VALIDATOR_CONTENT>>', (Get-Content -Raw -Path $validatorPath))  # noop if you paste validator first
+
+# If you pasted validator content above, comment the two lines above
+# and uncomment the next line to write from a local file you already saved:
+# $validatorText = Get-Content -Raw -Path $validatorPath
+
+# Ensure Ollama is reachable
+$ollamaUrl = "http://127.0.0.1:11434"
+function Test-Url { param([string]$Url,[int]$Timeout=6) try { Invoke-WebRequest -Uri $Url -TimeoutSec $Timeout | Out-Null; $true } catch { $false } }
+
+if (-not (Test-Url "$ollamaUrl/")) {
+  if ($EnableOllamaContainer) {
+    if (Test-Path ".\docker-compose.ollama.yml") {
+      Write-Host "Starting Ollama overlay container..."
+      docker compose -f docker-compose.yml -f docker-compose.ollama.yml up -d --remove-orphans | Out-Null
+      $sw = [Diagnostics.Stopwatch]::StartNew()
+      do { Start-Sleep 2 } while (-not (Test-Url "$ollamaUrl/") -and $sw.Elapsed.TotalSeconds -lt $MaxWaitSec)
+    } else {
+      Write-Warning "docker-compose.ollama.yml not found; cannot start overlay."
+    }
   } else {
-    if ($Text -and -not $Text.EndsWith("`r`n")) { $Text += "`r`n" }
-    return ($Text + "$Key=$Value`r`n")
+    Write-Warning "Ollama not reachable and overlay not requested. Start it manually (ollama serve)."
   }
 }
 
-# 0) Ensure .env contains API base + dual OLLAMA hosts
-if (-not (Test-Path $envP)) { New-Item -ItemType File -Path $envP -Force | Out-Null }
-$envTxt = Get-Content $envP -Raw
-$envTxt = Set-Or-AppendLine -Text $envTxt -Key 'NEXT_PUBLIC_API_BASE_URL' -Value 'http://127.0.0.1:8000'
-$envTxt = Set-Or-AppendLine -Text $envTxt -Key 'OLLAMA_MODEL'            -Value 'llama3.2:3b'
-$envTxt = Set-Or-AppendLine -Text $envTxt -Key 'OLLAMA_HOST_HOST'        -Value 'http://127.0.0.1:11434'
-$envTxt = Set-Or-AppendLine -Text $envTxt -Key 'OLLAMA_HOST_DOCKER'      -Value 'http://host.docker.internal:11434'
-$envTxt | Set-Content -Path $envP -Encoding UTF8
-say "[ENV] .env updated with API base + dual OLLAMA hosts" 'Yellow'
-
-# 1) Patch providers.py for an Ollama provider that uses OLLAMA_HOST_DOCKER
-$providersPy = Join-Path $api 'providers.py'
-if (-not (Test-Path $providersPy)) { throw "providers.py not found at $providersPy" }
-$src = Get-Content $providersPy -Raw
-
-$needPatch = ($src -notmatch '(?i)class\s+OllamaProvider') -or ($src -notmatch '(?i)OLLAMA_HOST_DOCKER')
-if ($needPatch) {
-  $patch = @"
-# --- Ollama provider (added by Fix-ChillChill) ---
-import os, requests
-
-class OllamaProvider:
-    def __init__(self):
-        self.host = os.environ.get("OLLAMA_HOST_DOCKER", "http://host.docker.internal:11434")
-        self.model = os.environ.get("OLLAMA_MODEL", "llama3.2:3b")
-
-    def generate(self, prompt: str, stream: bool=False):
-        url = f"{self.host}/api/generate"
-        payload = {"model": self.model, "prompt": prompt, "stream": False}
-        r = requests.post(url, json=payload, timeout=30)
-        r.raise_for_status()
-        j = r.json()
-        return (j.get("response") or j.get("message") or "")
-
-try:
-    PROVIDERS  # noqa
-except NameError:
-    PROVIDERS = {}
-
-# Register if missing
-if "ollama" not in PROVIDERS:
-    PROVIDERS["ollama"] = OllamaProvider()
-# --- end Ollama provider patch ---
-"@
-  $src += "`r`n" + $patch
-  $src | Set-Content -Path $providersPy -Encoding UTF8
-  say "[API] providers.py patched with docker-host-aware Ollama provider" 'Yellow'
-} else {
-  say "[API] providers.py already docker-host aware; no change" 'Green'
+# Optional: pull a small model if tags call fails (fresh server has none)
+if (Test-Url "$ollamaUrl/") {
+  try {
+    $tagsOk = Test-Url "$ollamaUrl/api/tags"
+    if (-not $tagsOk -and $AutoPullModel) {
+      Write-Host "Pulling model $Model (this may take a while)..."
+      $body = @{ name = $Model } | ConvertTo-Json -Compress
+      Invoke-WebRequest -Uri "$ollamaUrl/api/pull" -Method POST -Body $body -ContentType "application/json" -TimeoutSec ($MaxWaitSec*3) | Out-Null
+    }
+  } catch {
+    Write-Warning "Tags/pull step failed: $($_.Exception.Message)"
+  }
 }
 
-# 2) Rebuild containers
-Push-Location $root
-try {
-  docker compose up -d --build chill_api | Out-Null
-  say "[Docker] Rebuilt chill_api" 'Green'
-  docker compose up -d --build chill_ui  | Out-Null
-  say "[Docker] Rebuilt chill_ui" 'Green'
-} finally { Pop-Location }
-
-# 3) Auto-loop Validate until GREEN (optional)
-function Validate { & (Join-Path $root 'Validate-ChillChill.ps1'); return $LASTEXITCODE }
-$pass=0
-do {
-  $pass++
-  say "Validate pass #$pass..." 'Cyan'
-  $code = Validate
-  if ($code -eq 0) { say "Traffic Light: GREEN" 'Green'; break }
-  if (-not $AutoLoop -or $pass -ge $MaxPasses) { say "Traffic Light: AMBER/RED — manual follow-up required." 'Yellow'; break }
-  say "Applying next pass..." 'Yellow'
-} while ($true)
-
-# Rollback (git)
-Write-Host "`nRollback:" -ForegroundColor Magenta
-Write-Host "  git checkout -- $providersPy ; (git restore --staged . 2>$null)" -ForegroundColor DarkGray
+# Re-run validator
+Write-Host "Re-running validator..."
+pwsh -NoLogo -NoProfile -File $validatorPath

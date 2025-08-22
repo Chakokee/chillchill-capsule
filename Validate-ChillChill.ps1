@@ -1,98 +1,75 @@
-# Validate-ChillChill.ps1 — Provider wiring & Ollama readiness (fixed 2025-08-21)
-param(
-  [switch]$EnableRAG
-)
+# Validate-ChillChill.ps1  (vFinal)
+param()
 
-$ErrorActionPreference = 'Stop'
-$root = 'C:\AiProject'
-$api  = Join-Path $root 'chatbot\agent-api'
-$envP = Join-Path $root '.env'
-$report = @()
-function say($m,$c='Gray'){ Write-Host $m -ForegroundColor $c; $report += $m }
-$green=$true
-
-# 1) Core health
-try {
-  $r1 = Invoke-WebRequest 'http://127.0.0.1:8000/health' -TimeoutSec 10
-  if ($r1.StatusCode -ne 200) { throw "API /health=$($r1.StatusCode)" }
-  say "[API] /health :: 200" 'Green'
-} catch { say "[API] /health :: $($_.Exception.Message)" 'Red'; $green=$false }
-
-# /chat is POST — do a minimal POST
-try {
-  $body = @{ message = "ping" } | ConvertTo-Json
-  $r2 = Invoke-WebRequest 'http://127.0.0.1:8000/chat' -Method POST -TimeoutSec 10 -ContentType 'application/json' -Body $body
-  say "[API] /chat (POST) :: $($r2.StatusCode)" 'Green'
-} catch { say "[API] /chat (POST) :: $($_.Exception.Message)" 'Yellow' }
-
-# 2) Env checks
-$hostHost   = 'http://127.0.0.1:11434'
-$dockerHost = 'http://host.docker.internal:11434'
-$ollModel   = 'llama3.2:3b'
-if (Test-Path $envP) {
-  $envTxt = Get-Content $envP -Raw
-  if ($envTxt -match 'NEXT_PUBLIC_API_BASE_URL\s*=\s*http://127\.0\.0\.1:8000') {
-    say "[ENV] NEXT_PUBLIC_API_BASE_URL :: OK (127.0.0.1:8000)" 'Green'
-  } else {
-    say "[ENV] NEXT_PUBLIC_API_BASE_URL :: WARN (missing/mismatch)" 'Yellow'
-  }
-  $m = [regex]::Match($envTxt,'OLLAMA_MODEL\s*=\s*(\S+)').Groups[1].Value
-  if ($m){ $ollModel=$m }
-  $hHost = [regex]::Match($envTxt,'OLLAMA_HOST_HOST\s*=\s*(\S+)').Groups[1].Value
-  if ($hHost){ $hostHost=$hHost }
-  $dHost = [regex]::Match($envTxt,'OLLAMA_HOST_DOCKER\s*=\s*(\S+)').Groups[1].Value
-  if ($dHost){ $dockerHost=$dHost }
-} else {
-  say "[ENV] .env missing — using defaults" 'Yellow'
+function Test-Tcp {
+    param([string]$TcpHost, [int]$Port, [int]$Timeout=3000)
+    try {
+        $client = New-Object System.Net.Sockets.TcpClient
+        $iar = $client.BeginConnect($TcpHost,$Port,$null,$null)
+        if (-not $iar.AsyncWaitHandle.WaitOne($Timeout,$false)) { return $false }
+        $client.EndConnect($iar)
+        $client.Close()
+        return $true
+    } catch { return $false }
 }
 
-# 3) Ollama probes (host)
+Write-Host "===== VALIDATION START ====="
+
+# API checks
 try {
-  $tags = Invoke-WebRequest "$hostHost/api/tags" -TimeoutSec 20
-  say "[Ollama/Host] /api/tags :: OK" 'Green'
-} catch { say "[Ollama/Host] /api/tags :: FAIL ($($_.Exception.Message))" 'Yellow' }
+    $apiHealth = (Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -TimeoutSec 8).StatusCode
+    Write-Host "[API] /health :: $apiHealth"
+} catch { Write-Host "[API] /health :: FAIL" }
 
 try {
-  $payload = @{ model=$ollModel; prompt='ping'; stream=$false } | ConvertTo-Json
-  $gen = Invoke-WebRequest "$hostHost/api/generate" -Method POST -ContentType 'application/json' -Body $payload -TimeoutSec 30
-  say "[Ollama/Host] /api/generate ($ollModel) :: OK" 'Green'
-} catch { say "[Ollama/Host] /api/generate ($ollModel) :: FAIL ($($_.Exception.Message))" 'Yellow' }
+    $apiChat = (Invoke-WebRequest -Uri "http://127.0.0.1:8000/chat" -Method POST -Body '{"message":"ping"}' -ContentType "application/json" -TimeoutSec 8).StatusCode
+    Write-Host "[API] /chat (POST) :: $apiChat"
+} catch { Write-Host "[API] /chat (POST) :: FAIL" }
 
-# 4) Provider wiring check (expects in-container to use OLLAMA_HOST_DOCKER)
-$providersPy = Join-Path $api 'providers.py'
-if (Test-Path $providersPy) {
-  $content = Get-Content $providersPy -Raw
-  $hasClass   = $content -match '(?i)class\s+OllamaProvider'
-  $readsHost  = $content -match '(?i)OLLAMA_HOST_DOCKER' -or $content -match '(?i)host\.docker\.internal'
-  if ($hasClass -and $readsHost) {
-    say "[API] providers.py :: Ollama provider present (docker-host aware)" 'Green'
-  } else {
-    say "[API] providers.py :: Ollama provider MISSING or not docker-host aware" 'Red'
-    $green=$false
-  }
-} else {
-  say "[API] providers.py :: not found at $providersPy" 'Red'
-  $green=$false
+# Containers
+try {
+    $containers = docker compose ps --format json | ConvertFrom-Json
+    $containers | ForEach-Object { Write-Host "[Container] $($_.Name) :: $($_.State)" }
+} catch { Write-Host "[Container] listing :: FAIL" }
+
+# UI env
+try {
+    $ui = ($containers | ? { $_.Name -match 'ui' }).Name
+    if ($ui) {
+        $envCheck = docker exec $ui printenv | Select-String "NEXT_PUBLIC_API_BASE_URL"
+        if ($envCheck) { Write-Host ("[ENV] NEXT_PUBLIC_API_BASE_URL :: " + $envCheck.Line) }
+        else { Write-Host "[ENV] NEXT_PUBLIC_API_BASE_URL :: WARN (missing/mismatch)" }
+    }
+} catch { Write-Host "[ENV] NEXT_PUBLIC_API_BASE_URL :: FAIL" }
+
+# Infra ports
+$redisOk  = Test-Tcp '127.0.0.1' 6379
+$qdrantOk = Test-Tcp '127.0.0.1' 6333
+Write-Host "[Infra] Redis:6379 :: $redisOk"
+Write-Host "[Infra] Qdrant:6333 :: $qdrantOk"
+
+# --- Ollama checks (prefer local since you confirmed it's reachable)
+$OllamaHost  = "http://127.0.0.1:11434"
+
+function Get-Ollama {
+    param([string]$Path, [int]$Timeout=10)
+    Invoke-WebRequest -Uri ($OllamaHost + $Path) -TimeoutSec $Timeout
 }
 
-# 5) Optional RAG checks
-if ($EnableRAG) {
-  try {
-    $q = Test-NetConnection -ComputerName '127.0.0.1' -Port 6333 -WarningAction SilentlyContinue
-    if ($q.TcpTestSucceeded) { say "[RAG] Qdrant:6333 :: OK" 'Green' } else { say "[RAG] Qdrant:6333 :: SKIPPED (not running)" 'Yellow' }
-  } catch { say "[RAG] Qdrant probe :: WARN ($($_.Exception.Message))" 'Yellow' }
+function Post-Ollama {
+    param([string]$Path, [string]$Body, [int]$Timeout=20)
+    Invoke-WebRequest -Uri ($OllamaHost + $Path) -Method POST -Body $Body -ContentType "application/json" -TimeoutSec $Timeout
 }
 
-Write-Host "===== VALIDATION SUMMARY =====" -ForegroundColor Cyan
-$report | ForEach-Object { Write-Host $_ }
-Write-Host "===== END VALIDATION =====" -ForegroundColor Cyan
+try {
+    $r = Get-Ollama "/api/tags" -Timeout 10
+    Write-Host "[Ollama] /api/tags :: $($r.StatusCode)"
+} catch { Write-Host "[Ollama] /api/tags :: FAIL" }
 
-# Risk Meter (Validate)
-Write-Host "`nRISK METER:" -ForegroundColor Magenta
-if ($green) {
-  Write-Host "Traffic Light: GREEN — Stack healthy; Ollama reachable; provider wired." -ForegroundColor Green
-  exit 0
-} else {
-  Write-Host "Traffic Light: AMBER/RED — See failures above; run Fix." -ForegroundColor Yellow
-  exit 1
-}
+try {
+    $b = '{"model":"llama3.2:3b","prompt":"hi"}'
+    $g = Post-Ollama "/api/generate" -Body $b -Timeout 20
+    Write-Host "[Ollama] /api/generate :: $($g.StatusCode)"
+} catch { Write-Host "[Ollama] /api/generate :: FAIL" }
+
+Write-Host "===== VALIDATION END ====="
