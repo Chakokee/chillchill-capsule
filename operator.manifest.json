@@ -1,0 +1,25 @@
+{
+  "autoswitch": [
+    "gemini",
+    "groq",
+    "mistral"
+  ],
+  "rag": {
+    "embedder": "bge-small-en",
+    "rules": {
+      "require_citations": true,
+      "unknown_say": "I don't know"
+    },
+    "retrieval": {
+      "rerank_top": 3,
+      "top_k": 6,
+      "chunk": 850,
+      "overlap": 120
+    }
+  },
+  "personas": {
+    "Chef": "groq",
+    "Accountant": "groq",
+    "GP": "gemini"
+  }
+}

@@ -96,3 +96,17 @@ if "ollama" not in PROVIDERS:
     PROVIDERS["ollama"] = OllamaProvider()
 # --- end Ollama provider patch ---
 
+
+
+
+False
+False
+False
+
+# --- OPERATOR: canonical provider plan (appended) ---
+# This block is authoritative for autoswitch/personas if referenced by runtime.
+PROVIDER_PLAN = {
+    'autoswitch': ['gemini','groq','mistral'],
+    'personas':   { 'GP': 'gemini', 'Chef': 'groq', 'Accountant': 'groq' }
+}
+# --- END OPERATOR BLOCK ---

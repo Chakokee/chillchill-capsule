@@ -1,8 +1,8 @@
 services:
-  ui:
-    environment:
-      NEXT_PUBLIC_API_BASE_URL: "http://127.0.0.1:8000"
   api:
     environment:
-      CHAT_ECHO: ""
-      OLLAMA_HOST: "http://host.docker.internal:11434"
+      - GEMINI_API_KEY
+      - GROQ_API_KEY
+      - MISTRAL_API_KEY
+    volumes:
+      - ./operator.manifest.json:/app/operator.manifest.json:ro

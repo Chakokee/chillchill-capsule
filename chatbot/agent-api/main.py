@@ -68,3 +68,4 @@ async def voice_speak(payload: dict = Body(None)):
         # Return 503 with short explanation; UI already handles failures gracefully
         return Response(content=f"TTS error: {e}".encode("utf-8"), media_type="text/plain", status_code=503)
 
+
