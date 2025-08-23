@@ -1,75 +1,105 @@
-# Validate-ChillChill.ps1  (vFinal)
-param()
+# Validate-ChillChill.ps1
+param(
+  [switch]$VerboseOut
+)
 
-function Test-Tcp {
-    param([string]$TcpHost, [int]$Port, [int]$Timeout=3000)
-    try {
-        $client = New-Object System.Net.Sockets.TcpClient
-        $iar = $client.BeginConnect($TcpHost,$Port,$null,$null)
-        if (-not $iar.AsyncWaitHandle.WaitOne($Timeout,$false)) { return $false }
-        $client.EndConnect($iar)
-        $client.Close()
-        return $true
-    } catch { return $false }
+$ErrorActionPreference = 'Stop'
+Set-StrictMode -Version Latest
+function Status($name,$ok,$warnMessage=''){
+  $state = if ($ok) {'OK'} else {'FAIL'}
+  "{0,-28} :: {1}{2}" -f $name, $state, $(if(-not $ok -and $warnMessage){ " — $warnMessage"} )
 }
 
-Write-Host "===== VALIDATION START ====="
+$root = 'C:\AiProject'
+$apiDir = Join-Path $root 'chatbot\agent-api'
+$composeOverride = Join-Path $root 'docker-compose.override.yml'
+$manifestPath = Join-Path $root 'operator.manifest.json'
+$envPath = Join-Path $root '.env'
 
-# API checks
-try {
-    $apiHealth = (Invoke-WebRequest -Uri "http://127.0.0.1:8000/health" -TimeoutSec 8).StatusCode
-    Write-Host "[API] /health :: $apiHealth"
-} catch { Write-Host "[API] /health :: FAIL" }
+$finds = [ordered]@{}
 
-try {
-    $apiChat = (Invoke-WebRequest -Uri "http://127.0.0.1:8000/chat" -Method POST -Body '{"message":"ping"}' -ContentType "application/json" -TimeoutSec 8).StatusCode
-    Write-Host "[API] /chat (POST) :: $apiChat"
-} catch { Write-Host "[API] /chat (POST) :: FAIL" }
-
-# Containers
-try {
-    $containers = docker compose ps --format json | ConvertFrom-Json
-    $containers | ForEach-Object { Write-Host "[Container] $($_.Name) :: $($_.State)" }
-} catch { Write-Host "[Container] listing :: FAIL" }
-
-# UI env
-try {
-    $ui = ($containers | ? { $_.Name -match 'ui' }).Name
-    if ($ui) {
-        $envCheck = docker exec $ui printenv | Select-String "NEXT_PUBLIC_API_BASE_URL"
-        if ($envCheck) { Write-Host ("[ENV] NEXT_PUBLIC_API_BASE_URL :: " + $envCheck.Line) }
-        else { Write-Host "[ENV] NEXT_PUBLIC_API_BASE_URL :: WARN (missing/mismatch)" }
+# 1) Manifest presence & content
+$manifestOK = $false
+$manifestWhy = ''
+if (Test-Path $manifestPath){
+  try{
+    $m = Get-Content $manifestPath -Raw | ConvertFrom-Json
+    $expectOrder = @('gemini','groq','mistral')
+    $manifestOK = ($m.autoswitch -join ',') -eq ($expectOrder -join ',')
+    if(-not $manifestOK){ $manifestWhy = "autoswitch != gemini,groq,mistral" }
+    # personas check (best-effort)
+    $p = $m.personas
+    if($p){
+      $gp = $p.GP; $chef = $p.Chef; $acct = $p.Accountant
+      if($manifestOK){
+        $manifestOK = $gp -eq 'gemini' -and $chef -eq 'groq' -and $acct -in @('groq','mistral')
+        if(-not $manifestOK){ $manifestWhy = "personas mismatch (GP→gemini, Chef→groq, Acct→groq|mistral)" }
+      }
     }
-} catch { Write-Host "[ENV] NEXT_PUBLIC_API_BASE_URL :: FAIL" }
-
-# Infra ports
-$redisOk  = Test-Tcp '127.0.0.1' 6379
-$qdrantOk = Test-Tcp '127.0.0.1' 6333
-Write-Host "[Infra] Redis:6379 :: $redisOk"
-Write-Host "[Infra] Qdrant:6333 :: $qdrantOk"
-
-# --- Ollama checks (prefer local since you confirmed it's reachable)
-$OllamaHost  = "http://127.0.0.1:11434"
-
-function Get-Ollama {
-    param([string]$Path, [int]$Timeout=10)
-    Invoke-WebRequest -Uri ($OllamaHost + $Path) -TimeoutSec $Timeout
+  } catch { $manifestWhy = "invalid JSON"; $manifestOK = $false }
+}else{
+  $manifestWhy = "missing file"
 }
+$finds['Manifest'] = Status 'Manifest' $manifestOK $manifestWhy
 
-function Post-Ollama {
-    param([string]$Path, [string]$Body, [int]$Timeout=20)
-    Invoke-WebRequest -Uri ($OllamaHost + $Path) -Method POST -Body $Body -ContentType "application/json" -TimeoutSec $Timeout
+# 2) .env keys present (non-empty)
+$envOK = $false
+$envWhy = ''
+if(Test-Path $envPath){
+  $env = Get-Content $envPath | Where-Object {$_ -match '^\s*[^#]'}
+  function hasKey($k){ $env -match ("^\s*{0}=" -f [regex]::Escape($k)) }
+  $gemi = hasKey 'GEMINI_API_KEY'
+  $groq = hasKey 'GROQ_API_KEY'
+  $mist = hasKey 'MISTRAL_API_KEY'
+  $envOK = $gemi -and $groq -and $mist
+  if(-not $envOK){ $envWhy = "missing one of GEMINI_API_KEY/GROQ_API_KEY/MISTRAL_API_KEY" }
+}else{
+  $envWhy = ".env not found"
 }
+$finds['EnvKeys'] = Status 'Env Keys' $envOK $envWhy
 
-try {
-    $r = Get-Ollama "/api/tags" -Timeout 10
-    Write-Host "[Ollama] /api/tags :: $($r.StatusCode)"
-} catch { Write-Host "[Ollama] /api/tags :: FAIL" }
+# 3) Compose override mounts manifest & passes keys; OpenAI/Ollama disabled
+$composeOK = $false; $composeWhy = ''
+if(Test-Path $composeOverride){
+  $y = Get-Content $composeOverride -Raw
+  $hasManifestMount = $y -match 'operator\.manifest\.json'
+  $passesGemini = $y -match 'GEMINI_API_KEY'
+  $passesGroq   = $y -match 'GROQ_API_KEY'
+  $passesMistral= $y -match 'MISTRAL_API_KEY'
+  $openAIOn     = $y -match 'OPENAI_API_KEY'
+  $ollamaOn     = $y -match 'OLLAMA_'
+  $composeOK = $hasManifestMount -and $passesGemini -and $passesGroq -and $passesMistral -and (-not $openAIOn) -and (-not $ollamaOn)
+  if(-not $composeOK){
+    $composeWhy = "need manifest mount + keys; ensure OpenAI/Ollama not passed"
+  }
+}else{
+  $composeWhy = "override missing"
+}
+$finds['Compose'] = Status 'Compose' $composeOK $composeWhy
 
-try {
-    $b = '{"model":"llama3.2:3b","prompt":"hi"}'
-    $g = Post-Ollama "/api/generate" -Body $b -Timeout 20
-    Write-Host "[Ollama] /api/generate :: $($g.StatusCode)"
-} catch { Write-Host "[Ollama] /api/generate :: FAIL" }
+# 4) providers.py reflects autoswitch/personas
+$provPath = Join-Path $apiDir 'providers.py'
+$provOK = $false; $provWhy = ''
+if(Test-Path $provPath){
+  $txt = Get-Content $provPath -Raw
+  $autoOK = $txt -match "'autoswitch'\s*:\s*\[\s*'gemini'\s*,\s*'groq'\s*,\s*'mistral'\s*\]"
+  $gpOK   = $txt -match "GP'.*'(gemini)'" 
+  $chefOK = $txt -match "Chef'.*'(groq)'" 
+  $accOK  = $txt -match "Accountant'.*'(groq|mistral)'"
+  $provOK = $autoOK -and $gpOK -and $chefOK -and $accOK
+  if(-not $provOK){ $provWhy = "autoswitch/personas not updated in providers.py" }
+}else{
+  $provWhy = "providers.py missing"
+}
+$finds['Providers'] = Status 'Providers.py' $provOK $provWhy
 
-Write-Host "===== VALIDATION END ====="
+# Print results
+"===== VALIDATION SUMMARY ====="
+$finds.GetEnumerator() | ForEach-Object { $_.Value } | ForEach-Object { $_ }
+"===== END VALIDATION ====="
+
+# Traffic Light
+$critical = -not ($manifestOK -and $envOK -and $composeOK -and $provOK)
+$traffic = if($critical){ 'RED' } else { 'GREEN' }
+"RISK METER:`nTraffic Light: $traffic"
+if($VerboseOut){ "`nPaths:`n$manifestPath`n$envPath`n$composeOverride`n$provPath" }

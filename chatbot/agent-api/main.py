@@ -27,7 +27,7 @@ async def chat(payload: dict = Body(None)):
     msg = ((payload or {}).get("message") or "").strip()
     if not msg:
         return {"reply": "Say something and I’ll respond."}
-    reply = f"assistant reply: {msg}. I’m ChillChill—voice is free and active."
+# [OPERATOR] echo reply removed
     return {"reply": reply}
 
 # --- Piper (Wyoming) TTS ---
@@ -67,5 +67,8 @@ async def voice_speak(payload: dict = Body(None)):
     except Exception as e:
         # Return 503 with short explanation; UI already handles failures gracefully
         return Response(content=f"TTS error: {e}".encode("utf-8"), media_type="text/plain", status_code=503)
+
+
+
 
 

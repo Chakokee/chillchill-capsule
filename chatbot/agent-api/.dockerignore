@@ -10,3 +10,6 @@ venv/
 .gitignore
 dist/
 build/
+*.bak
+*.bak.*
+*~

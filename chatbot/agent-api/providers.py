@@ -107,6 +107,101 @@ False
 # This block is authoritative for autoswitch/personas if referenced by runtime.
 PROVIDER_PLAN = {
     'autoswitch': ['gemini','groq','mistral'],
-    'personas':   { 'GP': 'gemini', 'Chef': 'groq', 'Accountant': 'groq' }
+    'personas':   { 'GP': 'gemini', 'Chef': 'groq', 'Accountant': 'mistral' }
 }
 # --- END OPERATOR BLOCK ---
+
+
+# === OPERATOR PATCH START ===
+import json, os, time, inspect
+from typing import Optional
+
+_MANIFEST_CACHE = None
+_MANIFEST_MTIME = None
+
+def _load_manifest(path: str = os.path.join(os.getcwd(), 'operator.manifest.json')) -> dict:
+    global _MANIFEST_CACHE, _MANIFEST_MTIME
+    try:
+        st = os.stat(path)
+        if _MANIFEST_CACHE is None or _MANIFEST_MTIME != st.st_mtime:
+            with open(path, 'r', encoding='utf-8') as f:
+                _MANIFEST_CACHE = json.load(f)
+            _MANIFEST_MTIME = st.st_mtime
+    except Exception:
+        _MANIFEST_CACHE = _MANIFEST_CACHE or {
+            "autoswitch": ["gemini","groq","mistral"],
+            "personas":   { "GP":"gemini","Chef":"groq","Accountant":"groq" }
+        }
+    return _MANIFEST_CACHE
+
+def _env(key: str) -> Optional[str]:
+    v = os.getenv(key, "").strip()
+    return v if v else None
+
+def _chat_gemini(msg: str) -> Optional[str]:
+    api = _env("GEMINI_API_KEY")
+    if not api: return None
+    try:
+        # Minimal REST call (Generative Language API)
+        import requests
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api}"
+        payload = {"contents":[{"parts":[{"text": msg}]}]}
+        r = requests.post(url, json=payload, timeout=20)
+        if r.status_code != 200: return None
+        data = r.json()
+        # Extract first candidate text safely
+        return (data.get("candidates") or [{}])[0].get("content",{}).get("parts",[{}])[0].get("text") or None
+    except Exception as e:
+        print(f"[PROVIDER][gemini] error: {e}")
+        return None
+
+def _chat_openai_compat(msg: str, base: str, model: str, header_name: str, key: Optional[str]) -> Optional[str]:
+    if not key: return None
+    try:
+        import requests
+        url = f"{base.rstrip('/')}/v1/chat/completions"
+        headers = {"Content-Type":"application/json", "Authorization": f"Bearer {key}"}
+        payload = { "model": model, "messages": [ {"role":"user","content": msg} ] }
+        r = requests.post(url, headers=headers, json=payload, timeout=20)
+        if r.status_code != 200: return None
+        data = r.json()
+        choices = data.get("choices") or []
+        if not choices: return None
+        return choices[0].get("message",{}).get("content") or None
+    except Exception as e:
+        print(f"[PROVIDER][{model}] error: {e}")
+        return None
+
+def _chat_groq(msg: str) -> Optional[str]:
+    # Groq uses OpenAI-compatible API
+    key = _env("GROQ_API_KEY")
+    base = _env("GROQ_API_BASE") or "https://api.groq.com"
+    model = "llama3-70b-8192"
+    return _chat_openai_compat(msg, base, model, "Authorization", key)
+
+def _chat_mistral(msg: str) -> Optional[str]:
+    # Mistral also exposes OpenAI-compatible endpoint (fallback to official)
+    key = _env("MISTRAL_API_KEY")
+    base = _env("MISTRAL_API_BASE") or "https://api.mistral.ai"
+    model = _env("MISTRAL_MODEL") or "mistral-large-latest"
+    # Some deployments use openai-compatible proxy; above should work for vanilla
+    return _chat_openai_compat(msg, base, model, "Authorization", key)
+
+def chat_reply(msg: str) -> Optional[str]:
+    man = _load_manifest()
+    order = man.get("autoswitch") or ["gemini","groq","mistral"]
+    reply = None
+    for name in order:
+        if name == "gemini":
+            reply = _chat_gemini(msg)
+        elif name == "groq":
+            reply = _chat_groq(msg)
+        elif name == "mistral":
+            reply = _chat_mistral(msg)
+        else:
+            continue
+        if reply:
+            print(f"[PROVIDER] selected={name}")
+            return reply
+    return None
+# === OPERATOR PATCH END ===
