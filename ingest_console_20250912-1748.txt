@@ -1,0 +1,9 @@
+[INFO] OLLAMA=http://127.0.0.1:11434  MODEL=nomic-embed-text  QDRANT=http://127.0.0.1:6333  COL=active_pdfs_v1
+[INFO] CI_ENFORCE=hard  ALLOWLIST=C:\Ops_Repository\ci_allowlist.txt
+[SKIP] Missing CI sentinel (hard): C:\Ops_Repository\Active\KnowledgeTransfer_FullConfig_v20250829e.pdf
+[SKIP] Missing CI sentinel (hard): C:\Ops_Repository\Active\Modes & Switches ù Baseline (operator, Developer, Learning) ù V2025-08-31-1048 Aest.pdf
+[SKIP] Missing CI sentinel (hard): C:\Ops_Repository\Active\Modes_Switches_Baseline_v20250831-1042.pdf
+[SKIP] Missing CI sentinel (hard): C:\Ops_Repository\Active\SirChako_Framework_Enhancements-1.pdf
+[SKIP] Missing CI sentinel (hard): C:\Ops_Repository\Active\SirChako_Framework_Enhancements.pdf
+[UPSERT] 22 points (final)
+[DONE] pages_total=22 pages_ingested=22 in 4.7s

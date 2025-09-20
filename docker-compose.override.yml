@@ -1,0 +1,4 @@
+services:
+  chill_api:
+    volumes:
+      - 'C:\ChillChill\app:/app:rw'
