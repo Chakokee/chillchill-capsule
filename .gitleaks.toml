@@ -1,0 +1,6 @@
+title = "local rules"
+
+[allowlist]
+description = "ignore bundled test keys and bytecode"
+# paths are REGEX, so cover both / and \ on Windows:
+paths = ["^venv/.*", "^__pycache__/.*", "^venv\\.*", "^__pycache__\\.*"]

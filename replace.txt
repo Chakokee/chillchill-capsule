@@ -1,0 +1,8 @@
+regex:AKIA[0-9A-Z]{16}==>AWS_KEY_REMOVED
+regex:ghp_[A-Za-z0-9]{36}==>GITHUB_TOKEN_REMOVED
+regex:xox[abprs]-[A-Za-z0-9-]+==>SLACK_TOKEN_REMOVED
+regex:sk_(live|test)_[A-Za-z0-9]{24,}==>STRIPE_KEY_REMOVED
+regex:-----BEGIN (RSA|EC|OPENSSH) PRIVATE KEY-----.*?-----END \1 PRIVATE KEY-----==>PRIVATE_KEY_REMOVED
+regex:(?i)(password|api[_-]?key|secret|token)\s*[:=]\s*["''][^"'\r\n]+==>$1=REDACTED
+regex://[^/\s:]+:[^@\s]+@==>//USER:PASS@   # removes inline user:pass in URLs
+postgresql://chillchill:chillchill@127.0.0.1:5432/chillchill==>PG_DSN_REMOVED

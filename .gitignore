@@ -1,0 +1,8 @@
+.env
+*.pem
+*.pfx
+*.key
+*.cer
+*.crt
+*.bak
+*.log

@@ -1,0 +1,9 @@
+title = "baseline"
+
+[allowlist]
+commits = []
+description = "allow common noise"
+files = []
+paths = []
+regexes = []
+tags = []
